@@ -32,6 +32,7 @@ src/bundle.py          generic helpers for the standard model-bundle layout
 src/tracking.py        opt-in MLflow tracking helpers (no-op when unconfigured)
 src/train.py           sklearn training example — bundle layout, model_fn
 src/train_torch.py     torch training example — same bundle layout, safetensors weights
+src/train_lightgbm.py  LightGBM example — pickle-free native text format
 src/train_feast.py     sklearn trainer pulling features via Feast (point-in-time join)
 feature_repo/          Feast feature definitions (entities.py, features.py, store.yaml)
 prepare_data.py        writes data/iris.csv (toy multiclass dataset)
@@ -42,6 +43,8 @@ local_train_feast_dlc.py DLC + Feast — host-side feature retrieval, container 
 local_serve.py         placeholder — does not work yet (see "Serving", below)
 requirements.txt       sagemaker<3, boto3, mlflow, scikit-learn, pandas, docker
 requirements-torch.txt opt-in extras for the torch example: torch, safetensors
+requirements-lightgbm.txt opt-in extras for the LightGBM example: lightgbm
+requirements-skops.txt    opt-in: skops (safer-pickle for sklearn)
 requirements-feast.txt opt-in extras for the Feast feature-store example
 ```
 
@@ -305,6 +308,36 @@ Alternatives:
   decoupled from sklearn versions and from pickle. Cost: not every
   sklearn estimator has an ONNX path, and you lose sklearn-specific
   introspection (`feature_importances_`, `decision_function`, etc.).
+- **Switch frameworks**: if you're willing to use **LightGBM** instead
+  of sklearn, you escape the pickle problem entirely — see below.
+
+#### LightGBM (and the boring-good answer to pickle)
+
+If you're using a tree-based model on tabular data, LightGBM is
+typically faster and more accurate than sklearn's RandomForest, and
+its native serialization is **completely pickle-free**:
+
+```python
+booster.save_model("model.txt")             # human-readable text
+booster = lgb.Booster(model_file="model.txt")
+```
+
+The text file is the trees, threshold values, and feature names laid
+out as plain text — `cat model.txt` works. No Python class needed at
+load time, no version-coupling, no RCE risk. Wired in here as
+`src/train_lightgbm.py`:
+
+```bash
+.venv/bin/pip install -r requirements-lightgbm.txt
+.venv/bin/python src/train_lightgbm.py --train ./data --model-dir ./model_lgb
+.venv/bin/python local_serve.py --model-dir ./model_lgb   # round-trips
+```
+
+Same bundle envelope as the sklearn path — just `weights_file:
+"model.txt"` instead of `model.joblib`. `local_serve.py` dispatches on
+the bundle's `framework` field to pick the right loader automatically.
+On sonar, LightGBM hits ~0.83 vs RandomForest's ~0.79 with default
+hyperparameters; that's typical.
 
 #### torch
 

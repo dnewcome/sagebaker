@@ -19,12 +19,22 @@ import sys
 import tarfile
 import tempfile
 
+import importlib
+
 import pandas as pd
 import sklearn
 
 sys.path.insert(0, "src")
 import bundle  # type: ignore  # noqa: E402
-from train import model_fn  # type: ignore  # noqa: E402
+
+# Each framework's trainer exposes its own model_fn. Dispatch by the
+# `framework` field in config.json so this script handles any bundle
+# layout regardless of which trainer produced it.
+LOADER_MODULE = {
+    "sklearn": "train",
+    "torch": "train_torch",
+    "lightgbm": "train_lightgbm",
+}
 
 
 def latest_dlc_artifact():
@@ -38,12 +48,19 @@ def latest_dlc_artifact():
 
 
 def warn_version_skew(model_dir):
+    """Compare the bundle's framework_version against the *importing*
+    framework's actual version. Only sklearn really has the load-failure
+    risk (joblib + pickle); torch/lightgbm have stable file formats."""
     cfg = bundle.load_config(model_dir)
-    trained = cfg.get("framework_version", "?")
-    current = sklearn.__version__ if cfg.get("framework") == "sklearn" else "?"
-    if trained != current:
-        print(f"⚠ framework_version skew: trained with {trained}, "
-              f"loading with {current} — pickle may fail")
+    trained = cfg.get("framework_version")
+    framework = cfg.get("framework")
+    if framework == "sklearn":
+        current = sklearn.__version__
+    else:
+        return  # only sklearn pickles, others have stable file formats
+    if trained and trained != current:
+        print(f"⚠ sklearn version skew: trained with {trained}, "
+              f"loading with {current} — pickle load may fail")
 
 
 def main():
@@ -68,6 +85,13 @@ def main():
     print(f"bundle contents: {sorted(os.listdir(model_dir))}")
     warn_version_skew(model_dir)
 
+    cfg = bundle.load_config(model_dir)
+    fw = cfg.get("framework", "sklearn")
+    mod_name = LOADER_MODULE.get(fw)
+    if not mod_name:
+        sys.exit(f"unknown framework {fw!r}; expected one of {sorted(LOADER_MODULE)}")
+    print(f"framework: {fw} -> using {mod_name}.model_fn")
+    model_fn = importlib.import_module(mod_name).model_fn
     model = model_fn(model_dir)
     print(f"loaded: {type(model).__name__}")
 

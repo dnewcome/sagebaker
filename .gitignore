@@ -8,6 +8,9 @@ output/
 model/
 model_torch/
 model_feast/
+model_skops/
+model_sklearn/
+model_lgb/
 materialized/
 data/*.csv
 mlflow.db
