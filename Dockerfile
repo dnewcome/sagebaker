@@ -6,7 +6,8 @@ ENV PYTHONUNBUFFERED=1 \
 RUN pip install --no-cache-dir \
         scikit-learn==1.3.2 \
         pandas==2.2.2 \
-        joblib==1.4.2
+        joblib==1.4.2 \
+        mlflow-skinny==3.11.1
 
 COPY src/ /opt/ml/code/
 

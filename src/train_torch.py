@@ -24,6 +24,7 @@ from safetensors.torch import save_file, load_file
 from sklearn.model_selection import train_test_split
 
 import bundle
+import tracking
 
 HP_PATH = "/opt/ml/input/config/hyperparameters.json"
 WEIGHTS_FILE = "model.safetensors"
@@ -83,56 +84,68 @@ def main():
 
     input_dim = X.shape[1]
     num_classes = int(y.max()) + 1
-    model = SonarMLP(input_dim=input_dim, hidden_dim=args.hidden_dim, num_classes=num_classes)
-    optim = torch.optim.Adam(model.parameters(), lr=args.lr)
-    loss_fn = nn.CrossEntropyLoss()
 
-    X_train_t = torch.from_numpy(X_train)
-    y_train_t = torch.from_numpy(y_train)
-    X_test_t = torch.from_numpy(X_test)
-    y_test_t = torch.from_numpy(y_test)
+    run_params = {"epochs": args.epochs, "hidden_dim": args.hidden_dim,
+                  "lr": args.lr, "batch_size": args.batch_size,
+                  "dataset_file": os.path.basename(csvs[0])}
+    with tracking.mlflow_run(run_name="torch-mlp", params=run_params,
+                             tags={"framework": "torch"}):
+        model = SonarMLP(input_dim=input_dim, hidden_dim=args.hidden_dim, num_classes=num_classes)
+        optim = torch.optim.Adam(model.parameters(), lr=args.lr)
+        loss_fn = nn.CrossEntropyLoss()
 
-    model.train()
-    for epoch in range(args.epochs):
-        perm = torch.randperm(len(X_train_t))
-        for i in range(0, len(X_train_t), args.batch_size):
-            idx = perm[i:i + args.batch_size]
-            optim.zero_grad()
-            logits = model(X_train_t[idx])
-            loss = loss_fn(logits, y_train_t[idx])
-            loss.backward()
-            optim.step()
+        X_train_t = torch.from_numpy(X_train)
+        y_train_t = torch.from_numpy(y_train)
+        X_test_t = torch.from_numpy(X_test)
+        y_test_t = torch.from_numpy(y_test)
 
-    model.eval()
-    with torch.no_grad():
-        acc = (model(X_test_t).argmax(dim=1) == y_test_t).float().mean().item()
-    print(f"validation_accuracy={acc:.4f}")
+        model.train()
+        for epoch in range(args.epochs):
+            perm = torch.randperm(len(X_train_t))
+            epoch_loss = 0.0
+            for i in range(0, len(X_train_t), args.batch_size):
+                idx = perm[i:i + args.batch_size]
+                optim.zero_grad()
+                logits = model(X_train_t[idx])
+                loss = loss_fn(logits, y_train_t[idx])
+                loss.backward()
+                optim.step()
+                epoch_loss += loss.item()
+            tracking.log_metrics({"train_loss": epoch_loss}, step=epoch)
 
-    # --- write the bundle ------------------------------------------------
-    bundle.save_config(args.model_dir, {
-        "framework": "torch",
-        "framework_version": torch.__version__,
-        "model_class": "SonarMLP",
-        "model_module": "train_torch",
-        "init_kwargs": {
-            "input_dim": input_dim,
-            "hidden_dim": args.hidden_dim,
-            "num_classes": num_classes,
-        },
-        "weights_file": WEIGHTS_FILE,
-        "feature_names": list(df.drop(columns=["target"]).columns),
-    })
+        model.eval()
+        with torch.no_grad():
+            acc = (model(X_test_t).argmax(dim=1) == y_test_t).float().mean().item()
+        print(f"validation_accuracy={acc:.4f}")
+        tracking.log_metrics({"validation_accuracy": acc})
 
-    # weights as safetensors — mmap-able, no pickle, no RCE on load.
-    save_file(model.state_dict(), os.path.join(args.model_dir, WEIGHTS_FILE))
+        # --- write the bundle --------------------------------------------
+        bundle.save_config(args.model_dir, {
+            "framework": "torch",
+            "framework_version": torch.__version__,
+            "model_class": "SonarMLP",
+            "model_module": "train_torch",
+            "init_kwargs": {
+                "input_dim": input_dim,
+                "hidden_dim": args.hidden_dim,
+                "num_classes": num_classes,
+            },
+            "weights_file": WEIGHTS_FILE,
+            "feature_names": list(df.drop(columns=["target"]).columns),
+        })
 
-    bundle.save_metadata(args.model_dir, extras={
-        "validation_accuracy": acc,
-        "epochs": args.epochs,
-        "n_train": len(X_train),
-        "n_test": len(X_test),
-        "dataset_file": os.path.basename(csvs[0]),
-    })
+        # weights as safetensors — mmap-able, no pickle, no RCE on load.
+        save_file(model.state_dict(), os.path.join(args.model_dir, WEIGHTS_FILE))
+
+        bundle.save_metadata(args.model_dir, extras={
+            "validation_accuracy": acc,
+            "epochs": args.epochs,
+            "n_train": len(X_train),
+            "n_test": len(X_test),
+            "dataset_file": os.path.basename(csvs[0]),
+        })
+
+        tracking.log_bundle(args.model_dir)
 
 
 def model_fn(model_dir):

@@ -29,6 +29,7 @@ This project supports both:
 ```
 Dockerfile             minimal Python + scikit-learn image with a `train` command (BYOC)
 src/bundle.py          generic helpers for the standard model-bundle layout
+src/tracking.py        opt-in MLflow tracking helpers (no-op when unconfigured)
 src/train.py           sklearn training example — bundle layout, model_fn
 src/train_torch.py     torch training example — same bundle layout, safetensors weights
 prepare_data.py        writes data/iris.csv (toy multiclass dataset)
@@ -36,7 +37,7 @@ prepare_sonar.py       writes data/sonar.csv (Sonar Rocks vs Mines, binary)
 local_train.py         BYOC driver — uses the local image, no AWS account
 local_train_dlc.py     DLC driver  — uses the AWS scikit-learn DLC image
 local_serve.py         placeholder — does not work yet (see "Serving", below)
-requirements.txt       sagemaker<3, boto3, scikit-learn, pandas, docker
+requirements.txt       sagemaker<3, boto3, mlflow, scikit-learn, pandas, docker
 requirements-torch.txt opt-in extras for the torch example: torch, safetensors
 ```
 
@@ -252,6 +253,65 @@ class definition differ; the bundle envelope and the loader signature do
 not. To add a new framework, drop another `src/train_<x>.py` that calls
 the same `bundle.save_config(...)` / `bundle.save_metadata(...)` and
 writes its weights with whatever format that framework prefers.
+
+## Tracking with MLflow
+
+The trainers call MLflow unconditionally via `src/tracking.py`, which
+no-ops when `MLFLOW_TRACKING_URI` is unset. Set the env var to enable
+logging — params, metrics, tags, and the full bundle dir are all captured.
+
+Quickstart with a local SQLite-backed server (the file-based backend is
+deprecated as of MLflow 3 — use SQLite even for trivial local use):
+
+```bash
+# terminal 1: start a local server
+.venv/bin/mlflow server --host 127.0.0.1 --port 5000 \
+    --backend-store-uri sqlite:///mlflow.db \
+    --default-artifact-root ./mlartifacts
+
+# terminal 2: train
+export MLFLOW_TRACKING_URI=http://127.0.0.1:5000
+.venv/bin/python src/train_torch.py --train ./data --model-dir ./model_torch
+.venv/bin/python local_train.py     # BYOC — see "Inside docker" below
+
+# browse runs in the UI
+open http://127.0.0.1:5000
+```
+
+What gets logged:
+
+- **Params** — hyperparameters, dataset filename
+- **Metrics** — validation accuracy; per-epoch train_loss for torch
+- **Tags** — `framework=sklearn|torch`, plus MLflow's auto-tags (git commit, source)
+- **Artifacts** — the entire bundle dir (`config.json`, `metadata.json`,
+  weights file). Loading happens via `model_fn(model_dir)`, never via
+  `mlflow.X.load_model` — so MLflow doesn't pickle your class.
+
+### Inside docker (BYOC / DLC)
+
+The drivers (`local_train.py`, `local_train_dlc.py`) automatically pass
+`MLFLOW_TRACKING_URI` through to the container if it's set on the host,
+rewriting `localhost` / `127.0.0.1` to `host.docker.internal` so the
+container can reach the host. This works out of the box on Mac and
+Windows.
+
+**Linux limitation.** Docker for Linux does *not* resolve
+`host.docker.internal` by default (it's a Mac/Windows convenience). For
+container-side MLflow logging on Linux you also need:
+
+1. Bind the server to all interfaces:
+   `mlflow server --host 0.0.0.0 --port 5000 ...`
+2. Tell the trainer to use the host's LAN IP instead — set
+   `MLFLOW_TRACKING_URI=http://<your-lan-ip>:5000` (find with
+   `hostname -I | awk '{print $1}'`) before running the driver.
+
+Both of those are external-config tweaks, not code changes here. For now
+the simplest workflow on Linux is to log MLflow runs from host-side
+trainer invocations (`python src/train_torch.py ...`) and use the BYOC
+container only for testing the SageMaker-deployment-shaped path.
+
+For a remote MLflow server (e.g. company's), no rewrite happens — the
+driver passes the URL through unchanged.
 
 ## Hyperparameters
 

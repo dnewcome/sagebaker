@@ -23,12 +23,23 @@ os.environ["TMPDIR"] = SCRATCH
 session = LocalSession()
 session.config = {"local": {"local_code": True, "container_root": SCRATCH}}
 
+# If MLFLOW_TRACKING_URI is set on the host, pass it through to the container.
+# Rewrite localhost references because inside the container "localhost" is
+# the container itself; host.docker.internal resolves to the host.
+def _container_env():
+    uri = os.environ.get("MLFLOW_TRACKING_URI", "")
+    if not uri:
+        return {}
+    uri = uri.replace("127.0.0.1", "host.docker.internal").replace("localhost", "host.docker.internal")
+    return {"MLFLOW_TRACKING_URI": uri}
+
 estimator = Estimator(
     image_uri="sage-baker-sklearn:latest",
     role="arn:aws:iam::000000000000:role/SageMakerRole",  # ignored locally
     instance_type="local",
     instance_count=1,
     hyperparameters={"n-estimators": 200, "max-depth": 4},
+    environment=_container_env(),
     sagemaker_session=session,
 )
 

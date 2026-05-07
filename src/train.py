@@ -17,6 +17,7 @@ from sklearn.metrics import accuracy_score
 from sklearn.model_selection import train_test_split
 
 import bundle
+import tracking
 
 HP_PATH = "/opt/ml/input/config/hyperparameters.json"
 WEIGHTS_FILE = "model.joblib"
@@ -48,38 +49,47 @@ def main():
     y = df["target"]
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-    clf = RandomForestClassifier(n_estimators=args.n_estimators, max_depth=args.max_depth, random_state=42)
-    clf.fit(X_train, y_train)
+    run_params = {"n-estimators": args.n_estimators, "max-depth": args.max_depth,
+                  "dataset_file": os.path.basename(csvs[0])}
+    with tracking.mlflow_run(run_name="sklearn-rf", params=run_params,
+                             tags={"framework": "sklearn"}):
+        clf = RandomForestClassifier(n_estimators=args.n_estimators,
+                                     max_depth=args.max_depth, random_state=42)
+        clf.fit(X_train, y_train)
 
-    acc = accuracy_score(y_test, clf.predict(X_test))
-    print(f"validation_accuracy={acc:.4f}")
+        acc = accuracy_score(y_test, clf.predict(X_test))
+        print(f"validation_accuracy={acc:.4f}")
+        tracking.log_metrics({"validation_accuracy": acc})
 
-    # --- write the standard model bundle ---------------------------------
-    # config.json: how to rebuild the model. For sklearn the "code" is the
-    # sklearn library itself, so we just need the estimator class name, its
-    # init params, and the feature schema.
-    bundle.save_config(args.model_dir, {
-        "framework": "sklearn",
-        "framework_version": sklearn.__version__,
-        "estimator": type(clf).__name__,
-        "estimator_module": type(clf).__module__,
-        "params": clf.get_params(),
-        "weights_file": WEIGHTS_FILE,
-        "feature_names": list(X.columns),
-        "classes": [int(c) if hasattr(c, "item") else c for c in clf.classes_.tolist()],
-    })
+        # --- write the standard model bundle -----------------------------
+        # config.json: how to rebuild the model. For sklearn the "code" is
+        # the sklearn library itself, so we just need the estimator class
+        # name, its init params, and the feature schema.
+        bundle.save_config(args.model_dir, {
+            "framework": "sklearn",
+            "framework_version": sklearn.__version__,
+            "estimator": type(clf).__name__,
+            "estimator_module": type(clf).__module__,
+            "params": clf.get_params(),
+            "weights_file": WEIGHTS_FILE,
+            "feature_names": list(X.columns),
+            "classes": [int(c) if hasattr(c, "item") else c for c in clf.classes_.tolist()],
+        })
 
-    # weights: framework-specific blob. For sklearn, joblib (pickle) is the
-    # canonical format — pin the framework_version above to make this safe.
-    joblib.dump(clf, os.path.join(args.model_dir, WEIGHTS_FILE))
+        # weights: framework-specific blob. For sklearn, joblib (pickle) is
+        # the canonical format — pin framework_version above to make safe.
+        joblib.dump(clf, os.path.join(args.model_dir, WEIGHTS_FILE))
 
-    # metadata: provenance + metrics. Augments, never gates loading.
-    bundle.save_metadata(args.model_dir, extras={
-        "validation_accuracy": acc,
-        "n_train": len(X_train),
-        "n_test": len(X_test),
-        "dataset_file": os.path.basename(csvs[0]),
-    })
+        # metadata: provenance + metrics. Augments, never gates loading.
+        bundle.save_metadata(args.model_dir, extras={
+            "validation_accuracy": acc,
+            "n_train": len(X_train),
+            "n_test": len(X_test),
+            "dataset_file": os.path.basename(csvs[0]),
+        })
+
+        # log the bundle as opaque MLflow artifacts (no-op if disabled).
+        tracking.log_bundle(args.model_dir)
 
 
 def model_fn(model_dir):

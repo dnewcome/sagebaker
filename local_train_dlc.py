@@ -40,6 +40,14 @@ os.environ["TMPDIR"] = SCRATCH
 session = LocalSession()
 session.config = {"local": {"local_code": True, "container_root": SCRATCH}}
 
+# Same MLFLOW_TRACKING_URI passthrough as local_train.py — see comments there.
+def _container_env():
+    uri = os.environ.get("MLFLOW_TRACKING_URI", "")
+    if not uri:
+        return {}
+    uri = uri.replace("127.0.0.1", "host.docker.internal").replace("localhost", "host.docker.internal")
+    return {"MLFLOW_TRACKING_URI": uri}
+
 estimator = SKLearn(
     entry_point="train.py",
     source_dir="src",  # must NOT contain a requirements.txt — see README
@@ -49,6 +57,7 @@ estimator = SKLearn(
     framework_version="1.2-1",
     py_version="py3",
     hyperparameters={"n-estimators": 200, "max-depth": 4},
+    environment=_container_env(),
     sagemaker_session=session,
 )
 

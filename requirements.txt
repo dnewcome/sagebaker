@@ -1,5 +1,6 @@
 sagemaker>=2.230,<3
 boto3
 docker
+mlflow>=2.10
 scikit-learn
 pandas
