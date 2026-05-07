@@ -789,9 +789,28 @@ longer with table snapshots) this is byte-for-byte exact.
   BigQuery. Supported algorithms are limited (linear/logistic, k-means,
   ARIMA, boosted trees, AutoML, can import TF/PyTorch for inference).
   Useful if your team is SQL-first and the algorithms cover your case.
-- **BQ Storage API** (`google-cloud-bigquery-storage`): streams query
-  results in batches via Arrow for datasets that don't fit in memory.
-  Trade pandas convenience for scale.
+- **BQ Storage Read API** (`google-cloud-bigquery-storage`): a separate
+  client library that swaps BigQuery's standard REST endpoint for a
+  gRPC + Apache Arrow streaming transport. The regular client
+  (`google-cloud-bigquery`) returns paginated JSON — fine for small
+  queries, painful past a few thousand rows. With
+  `google-cloud-bigquery-storage` installed, `to_dataframe()` and
+  `load_table_from_dataframe()` automatically use the Storage API
+  (no code changes); without it, BQ falls back to REST and warns.
+
+  Rough scale of the speedup:
+
+  | Query size       | REST            | Storage API     |
+  | ---------------- | --------------- | --------------- |
+  | 200 rows         | <1 s            | <1 s — no diff  |
+  | 100K rows        | ~10 s           | ~1 s            |
+  | 10M rows         | minutes (often times out) | ~10–30 s, parallelizable |
+
+  Already in `requirements-bigquery.txt`. Needs the `bigquery.readSessions.create`
+  IAM permission on the service account (usually included in
+  `roles/bigquery.user` or `roles/bigquery.dataViewer`); without it, the
+  client falls back to REST and warns. Don't confuse with the **Storage
+  Write API** (different package, used for streaming inserts).
 
 ## Training/serving skew: two real bugs and what fixes them
 
