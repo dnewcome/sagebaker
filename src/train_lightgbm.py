@@ -81,7 +81,9 @@ def main():
 
     feature_cols = [c for c in df.columns if c not in {"target", "signal_id", "event_timestamp"}]
     X = df[feature_cols]
-    y = df["target"]
+    # Cast to plain int so the booster keeps integer class labels even
+    # when `target` arrives as pandas nullable Int64 (e.g. from BigQuery).
+    y = df["target"].astype(int)
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
     num_classes = int(np.unique(y).size)

@@ -77,7 +77,9 @@ def main():
     # drop bookkeeping columns Feast adds (entity + timestamp) if present
     feature_cols = [c for c in df.columns if c not in {"target", "signal_id", "event_timestamp"}]
     X = df[feature_cols]
-    y = df["target"]
+    # Cast to plain int so sklearn doesn't promote classes_ to float when
+    # `target` arrives as pandas nullable Int64 (e.g. from BigQuery).
+    y = df["target"].astype(int)
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
     run_params = {"n-estimators": args.n_estimators, "max-depth": args.max_depth,
