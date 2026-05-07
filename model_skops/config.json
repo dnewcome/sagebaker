@@ -24,8 +24,8 @@
     "verbose": 0,
     "warm_start": false
   },
-  "weights_file": "model.joblib",
-  "weights_format": "joblib",
+  "weights_file": "model.skops",
+  "weights_format": "skops",
   "feature_names": [
     "f0",
     "f1",

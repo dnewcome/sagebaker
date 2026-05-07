@@ -20,7 +20,28 @@ import bundle
 import tracking
 
 HP_PATH = "/opt/ml/input/config/hyperparameters.json"
-WEIGHTS_FILE = "model.joblib"
+
+# Map weights-format choice to (filename, dump fn, load fn). Loading is
+# dispatched purely on the filename's extension recorded in config.json,
+# so swapping formats is a write-time decision the loader picks up
+# transparently.
+def _save_joblib(obj, path):
+    joblib.dump(obj, path)
+def _load_joblib(path, **_):
+    return joblib.load(path)
+def _save_skops(obj, path):
+    import skops.io as sio
+    sio.dump(obj, path)
+def _load_skops(path, trusted=None):
+    import skops.io as sio
+    # `trusted=[]` accepts only types skops considers safe (sklearn's
+    # builtins). For custom classes you'd pass them by name here.
+    return sio.load(path, trusted=trusted or [])
+
+WEIGHTS_FORMATS = {
+    "joblib": ("model.joblib", _save_joblib, _load_joblib),
+    "skops":  ("model.skops",  _save_skops,  _load_skops),
+}
 
 
 def load_hyperparameters():
@@ -38,7 +59,11 @@ def main():
     parser.add_argument("--max-depth", type=int, default=int(hp.get("max-depth", 5)))
     parser.add_argument("--model-dir", type=str, default=os.environ.get("SM_MODEL_DIR", "/opt/ml/model"))
     parser.add_argument("--train", type=str, default=os.environ.get("SM_CHANNEL_TRAIN", "/opt/ml/input/data/train"))
+    parser.add_argument("--weights-format", choices=list(WEIGHTS_FORMATS),
+                        default=hp.get("weights-format", "joblib"),
+                        help="how to serialize the trained model (joblib or skops)")
     args, _ = parser.parse_known_args()
+    weights_file, save_weights, _ = WEIGHTS_FORMATS[args.weights_format]
 
     os.makedirs(args.model_dir, exist_ok=True)
 
@@ -77,14 +102,16 @@ def main():
             "estimator": type(clf).__name__,
             "estimator_module": type(clf).__module__,
             "params": clf.get_params(),
-            "weights_file": WEIGHTS_FILE,
+            "weights_file": weights_file,
+            "weights_format": args.weights_format,
             "feature_names": list(X.columns),
             "classes": [int(c) if hasattr(c, "item") else c for c in clf.classes_.tolist()],
         })
 
-        # weights: framework-specific blob. For sklearn, joblib (pickle) is
-        # the canonical format — pin framework_version above to make safe.
-        joblib.dump(clf, os.path.join(args.model_dir, WEIGHTS_FILE))
+        # weights: dispatched by --weights-format. joblib (pickle) is
+        # canonical; skops is a safer-pickle drop-in (allowlist of
+        # trusted classes, no arbitrary code execution on load).
+        save_weights(clf, os.path.join(args.model_dir, weights_file))
 
         # metadata: provenance + metrics. Augments, never gates loading.
         bundle.save_metadata(args.model_dir, extras={
@@ -113,9 +140,17 @@ def model_fn(model_dir):
     SageMaker's SKLearn inference container calls this. The same function
     works for any caller (a test, a local script, a custom MLflow PyFunc)
     because it knows nothing about SageMaker — it just loads the bundle.
+
+    Dispatch on `weights_format` recorded in config.json so swapping the
+    format at training time doesn't require updating any caller.
     """
     config = bundle.load_config(model_dir)
-    return joblib.load(os.path.join(model_dir, config["weights_file"]))
+    fmt = config.get("weights_format", "joblib")
+    if fmt not in WEIGHTS_FORMATS:
+        raise ValueError(f"unknown weights_format {fmt!r}; expected one of "
+                         f"{sorted(WEIGHTS_FORMATS)}")
+    _, _, load_weights = WEIGHTS_FORMATS[fmt]
+    return load_weights(os.path.join(model_dir, config["weights_file"]))
 
 
 if __name__ == "__main__":

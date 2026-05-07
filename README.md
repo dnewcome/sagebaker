@@ -288,7 +288,18 @@ Alternatives:
   `skops.io.load` use an explicit allowlist of trusted classes and
   refuse anything else, fixing the RCE risk. Same shape as joblib;
   trivial drop-in. **Doesn't fix the version-coupling problem** — the
-  underlying object format is still sklearn's.
+  underlying object format is still sklearn's. Wired in here as a
+  swappable weights format:
+  ```bash
+  .venv/bin/pip install -r requirements-skops.txt
+  .venv/bin/python src/train.py --train ./data --model-dir ./model_skops \
+                               --weights-format skops
+  .venv/bin/python local_serve.py --model-dir ./model_skops   # round-trips
+  ```
+  `train.py` dispatches the writer by flag; `model_fn(model_dir)`
+  dispatches the reader by the `weights_format` field in `config.json`.
+  No caller of `model_fn` knows or cares which format produced the
+  weights — that's the whole point of the bundle's pointer-style design.
 - **`skl2onnx`** — converts a fitted sklearn pipeline to ONNX. The
   resulting graph loads in ONNX Runtime without sklearn at all, fully
   decoupled from sklearn versions and from pickle. Cost: not every
