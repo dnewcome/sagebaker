@@ -71,10 +71,23 @@ docker build -t sage-baker-sklearn:latest .
 
 ### DLC (with AWS credentials)
 
+AWS now recommends IAM Identity Center (SSO) with short-lived credentials
+over long-lived access keys. One-time setup:
+
 ```bash
-export AWS_PROFILE=your-profile     # or AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY
+aws configure sso                 # creates a profile entry in ~/.aws/config
+```
+
+Then before each session:
+
+```bash
+aws sso login --profile your-profile
+export AWS_PROFILE=your-profile
 .venv/bin/python local_train_dlc.py
 ```
+
+(Long-lived `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` env vars still work
+if you need them.)
 
 The DLC image (~3 GB) is pulled once and cached in your local Docker daemon;
 subsequent runs are offline.

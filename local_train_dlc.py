@@ -1,10 +1,16 @@
 """Run training in SageMaker Local Mode against the official AWS DLC image.
 
 Pulls the AWS scikit-learn Deep Learning Container the first time, which
-requires real AWS credentials in your environment / profile. Any account
-works — the image is publicly readable, but ECR still demands a real auth
-token to issue the pull. Set AWS_PROFILE or
-AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY before running.
+requires real AWS credentials. Any account works — the image is publicly
+readable, but ECR still demands a real auth token to issue the pull.
+
+Recommended: AWS IAM Identity Center (SSO) with short-lived credentials.
+    aws configure sso          # one-time, creates a profile
+    aws sso login --profile <name>
+    export AWS_PROFILE=<name>
+
+Long-lived access keys also work (AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY)
+but AWS no longer recommends them for human users.
 
 Benefits over the BYOC path:
   - edit train.py without rebuilding any image (entry_point flow)
@@ -18,8 +24,9 @@ from sagemaker.sklearn.estimator import SKLearn
 
 if not (os.environ.get("AWS_PROFILE") or os.environ.get("AWS_ACCESS_KEY_ID")):
     raise SystemExit(
-        "Real AWS credentials required for DLC pulls. "
-        "Set AWS_PROFILE or AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY."
+        "Real AWS credentials required for DLC pulls.\n"
+        "Recommended: aws sso login --profile <name> && export AWS_PROFILE=<name>\n"
+        "Or set AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY directly."
     )
 os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
 
