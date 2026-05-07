@@ -1,3 +1,4 @@
 google-cloud-bigquery>=3
+google-cloud-bigquery-storage>=2
 db-dtypes
 pyarrow
