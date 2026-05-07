@@ -43,6 +43,7 @@ local_train.py         BYOC driver — uses the local image, no AWS account
 local_train_dlc.py     DLC driver  — uses the AWS scikit-learn DLC image
 local_train_feast_dlc.py DLC + Feast — host-side feature retrieval, container trains
 pipeline.py            production SageMaker Pipeline sketch (cloud, untested)
+evaluate.py            score a bundle against a holdout, write metrics.json
 deploy_endpoint.py     production endpoint deploy from a registered ModelPackage
 local_serve.py         placeholder — does not work yet (see "Serving", below)
 requirements.txt       sagemaker<3, boto3, mlflow, scikit-learn, pandas, docker

@@ -2,5 +2,8 @@ sagemaker>=2.230,<3
 boto3
 docker
 mlflow>=2.10
-scikit-learn
+# Pin sklearn to match the BYOC Dockerfile so host-side loaders (evaluate.py,
+# local_serve.py, mlflow_serve.py) can read tarballs trained inside the
+# container. Bumping this requires bumping the Dockerfile in lockstep.
+scikit-learn==1.3.2
 pandas
