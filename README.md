@@ -257,6 +257,76 @@ repo — versioned, debuggable, hot-editable. Want to fix a bug in
 `safetensors` is the boring-good default for tensor data: zero-copy mmap,
 no arbitrary code execution on load, supported by torch / JAX / TF / HF.
 
+### Beyond pickle: alternatives by framework
+
+The boring defaults above (joblib, safetensors, JSON) are the right
+starting point. When they aren't enough — most often when you want
+stricter security, version-decoupling, or framework-portability —
+here's what to reach for.
+
+#### sklearn
+
+`joblib` is canonical for sklearn pipelines, but it *is* pickle under
+the hood. Two real risks live here:
+
+1. **Framework-version coupling.** Tree node formats, parameter
+   layouts, and class names change across sklearn versions and can
+   silently corrupt loads. We hit this live in this repo: a model
+   trained with sklearn 1.2 in the DLC failed to load with sklearn
+   1.3 on the host —
+   `ValueError: node array from the pickle has an incompatible dtype`.
+   The `framework_version` field in `config.json` is the warning
+   signal. Mitigation: lock the trainer's sklearn version to the
+   inference container's.
+2. **Arbitrary code execution on load.** Pickle deserializes by
+   importing classes and calling their constructors. A malicious pkl
+   from an untrusted source = remote code execution.
+
+Alternatives:
+
+- **`skops`** — sklearn-team-blessed safer pickle. `skops.io.dump` /
+  `skops.io.load` use an explicit allowlist of trusted classes and
+  refuse anything else, fixing the RCE risk. Same shape as joblib;
+  trivial drop-in. **Doesn't fix the version-coupling problem** — the
+  underlying object format is still sklearn's.
+- **`skl2onnx`** — converts a fitted sklearn pipeline to ONNX. The
+  resulting graph loads in ONNX Runtime without sklearn at all, fully
+  decoupled from sklearn versions and from pickle. Cost: not every
+  sklearn estimator has an ONNX path, and you lose sklearn-specific
+  introspection (`feature_importances_`, `decision_function`, etc.).
+
+#### torch
+
+For weights-only, `safetensors`. For "model in a box" — graph + weights,
+loadable without the Python class — there are two mainstream paths:
+
+- **TorchScript** (`torch.jit.script` or `torch.jit.trace` → `.pt`):
+  serializes the forward graph alongside weights. The class definition
+  isn't needed at load time. Tradeoff: only a JIT-compatible subset of
+  Python works — you have to type-annotate (`script`) or write a
+  trace-friendly forward (`trace`). Mature; common in mobile.
+- **`torch.onnx.export`**: emits ONNX. Maximally portable — runs in
+  ONNX Runtime (C++), TensorFlow.js, etc. Cost: not every torch
+  operator maps to an ONNX op; you sometimes refactor the model to get
+  a clean export.
+
+#### Framework-agnostic
+
+- **ONNX** (Open Neural Network Exchange) — the strongest answer to
+  "I want the model independent of the training framework." Stores the
+  computation graph + weights as protobuf. Visually inspectable with
+  Netron. Loadable from C++ / Python / JS / Rust without requiring
+  torch / TF / sklearn. Best when you need to serve in non-Python
+  environments or want hard separation from training code.
+- **TF SavedModel** — TF-specific but mature: graph + weights +
+  signatures in a directory. Less relevant unless you're on TF.
+
+In this bundle layout, you can swap the *weights file format* without
+changing the bundle envelope: `weights_file: "model.onnx"` is just as
+valid as `model.joblib` or `model.safetensors`. `model_fn(model_dir)`
+reads `config.json` to know which loader to use. The code/weights/config
+separation holds regardless of which weights serializer you pick.
+
 ### How this maps to other systems
 
 - **SageMaker.** Whatever you put in `/opt/ml/model/` gets tarred to
