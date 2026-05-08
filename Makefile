@@ -143,5 +143,5 @@ clean: ## Remove scratch dirs (keeps venv, MLflow data, Feast registry)
 .PHONY: serve mlflow-serve demo-categorical
 .PHONY: mlflow-server jupyter feast-apply clean
 
-# Private plugin targets (gitignored; Button-specific).
+# Private plugin targets (gitignored; company-specific).
 -include Makefile.private

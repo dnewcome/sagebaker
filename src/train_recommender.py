@@ -139,9 +139,9 @@ class RecommenderBundle:
     Recommendation is a dot product between a stored entity embedding and
     all item embeddings, followed by argsort.
 
-    This is the object the Button inference service (or any caller) holds
-    after loading a recommender bundle. It owns the entity→idx lookup,
-    the item←idx lookup, and the score computation.
+    This is the object an inference service (or any caller) holds after
+    loading a recommender bundle. It owns the entity→idx lookup, the
+    item←idx lookup, and the score computation.
     """
 
     def __init__(self, user_factors, item_factors, entity_map, item_map):
