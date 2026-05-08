@@ -102,11 +102,18 @@ def propose(client, program, plugin_path, plugin_src, history, best):
     agent isn't doing anything'.
     """
     if history:
-        lines = [
-            f"  iter {i + 1}: metric={m:.4f} ({'kept' if kept else 'reverted'}) "
-            f"proposal_hash={src_hash(snap)}"
-            for i, (snap, m, kept) in enumerate(history[-5:])
-        ]
+        # show enough recent history that the model can see *why*
+        # earlier attempts were reverted, not just that they were
+        lines = []
+        for i, entry in enumerate(history[-5:]):
+            snap, m, kept, why = entry
+            head = (f"iter {i + 1}: metric={m:.4f} "
+                    f"({'kept' if kept else 'reverted'}) "
+                    f"proposal_hash={src_hash(snap)}")
+            lines.append("  " + head)
+            if why:
+                # Indent so the model parses the why as belonging to that iter
+                lines.append("    " + why.replace("\n", "\n    "))
         history_summary = "\n".join(lines)
     else:
         history_summary = "  (none yet — this is iteration 1)"
@@ -181,7 +188,11 @@ def main():
     client = Anthropic()
 
     start = time.time()
-    history = []  # [(proposal, metric, kept_bool)]
+    # history entries: (proposal_source, metric, kept_bool, why_reverted)
+    # why_reverted is a short string (or None) the next iteration's prompt
+    # uses to give the LLM concrete failure feedback so it doesn't keep
+    # making the same mistake.
+    history = []
     best = -float("inf")
 
     for i in range(1, args.max_iterations + 1):
@@ -197,18 +208,20 @@ def main():
             proposal = propose(client, program, args.plugin, plugin_src, history, best)
         except Exception as e:
             print(f"  LLM call failed: {e}")
-            history.append(("", -1.0, False))
+            history.append(("", -1.0, False, f"LLM call failed: {e}"))
             continue
 
         if not syntax_ok(proposal):
-            print("  syntax error in proposal; reverting")
-            history.append((proposal, -1.0, False))
+            why = "proposal failed Python syntax check (ast.parse raised)"
+            print(f"  {why}; reverting")
+            history.append((proposal, -1.0, False, why))
             continue
 
         if proposal.strip() == plugin_src.strip():
-            print("  proposal is byte-identical to current plugin "
-                  "(LLM didn't actually change anything); skipping training")
-            history.append((proposal, -1.0, False))
+            why = ("proposal was byte-identical to the current plugin — "
+                   "you must change something each iteration")
+            print(f"  {why}")
+            history.append((proposal, -1.0, False, why))
             continue
 
         write(args.plugin, proposal)
@@ -218,28 +231,35 @@ def main():
             ["make", "train"], capture_output=True, text=True, env=os.environ.copy()
         )
         if result.returncode != 0:
+            err_tail = (result.stderr or result.stdout)[-500:].strip()
+            why = f"training failed (exit {result.returncode}). last stderr/stdout:\n{err_tail}"
             print(f"  training failed (exit {result.returncode}); reverting")
-            print(f"  last stderr: {result.stderr[-300:]}")
+            print(f"  last stderr: {err_tail[-300:]}")
             revert(args.plugin)
-            history.append((proposal, -1.0, False))
+            history.append((proposal, -1.0, False, why))
             continue
 
         metric = parse_metric(result.stdout, args.metric)
         if metric is None:
-            print(f"  no '{args.metric}' in stdout; reverting")
+            why = (f"training succeeded but no validation_<name>=… line in stdout "
+                   f"(expected pattern '{args.metric or 'validation_<anything>'}')")
+            print(f"  {why}; reverting")
             revert(args.plugin)
-            history.append((proposal, -1.0, False))
+            history.append((proposal, -1.0, False, why))
             continue
 
         keep = metric > best
         print(f"  metric={metric:.4f} → {'KEEP' if keep else 'REVERT'}")
         if keep:
             best = metric
+            history.append((proposal, metric, True, None))
         else:
             revert(args.plugin)
-        history.append((proposal, metric, keep))
+            why = (f"metric {metric:.4f} did not beat current best "
+                   f"{best:.4f}")
+            history.append((proposal, metric, False, why))
 
-    kept = sum(1 for _, _, k in history if k)
+    kept = sum(1 for entry in history if entry[2])
     print(f"\n===== done =====")
     print(f"  iterations: {len(history)} ({kept} kept, {len(history) - kept} reverted)")
     print(f"  best metric: {best:.4f}" if best > -float("inf") else "  no successful runs")
