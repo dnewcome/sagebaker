@@ -54,6 +54,40 @@ class HousingPlugin(TrainingPlugin):
     def prepare_data(self, output_dir, ...): ...   # leave as-is
 ```
 
+### prepare(df) — the only safe pattern
+
+`y` MUST be extracted from `df` BEFORE any transformation that could
+remove the `target` column. Use this template literally; only modify
+the inner "feature engineering" section:
+
+```python
+_SKIP = {"target", "signal_id", "event_timestamp"}
+
+def prepare(self, df: pd.DataFrame):
+    # 1. Extract the target FIRST (continuous; cast to float).
+    y = df["target"].astype(float)
+
+    # 2. Build the feature frame from a copy of df, leaving the
+    #    original df (with target intact) alone.
+    X = df.drop(columns=_SKIP, errors="ignore").copy()
+
+    # 3. (Optional) feature engineering on X — log transforms,
+    #    ratios, geo-coordinate features, etc.:
+    #    X["rooms_per_household"] = X["AveRooms"] / X["AveOccup"]
+    #    X["log_pop"] = np.log1p(X["Population"])
+
+    return X, y
+```
+
+Common failure: dropping target from df and then trying to read it
+back. Don't do this:
+
+```python
+df = df.drop(columns=["target", ...])
+X = df
+y = df["target"]   # KeyError — target was dropped above
+```
+
 ## Strategy hints for California housing
 
 - **The features are skewed.** `MedInc` has a long right tail.

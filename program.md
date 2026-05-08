@@ -46,6 +46,7 @@ from .base import TrainingPlugin
 
 class DefaultPlugin(TrainingPlugin):
     name = "default"
+    task = "classification"
 
     def prepare(self, df):
         """Return (X: pd.DataFrame, y: pd.Series). Drop bookkeeping cols."""
@@ -59,6 +60,51 @@ class DefaultPlugin(TrainingPlugin):
         """Return dict of extra fields for config.json (can be empty)."""
         return {}
 ```
+
+### prepare(df) — the only safe pattern
+
+`y` MUST be extracted from `df` *before* any transformation that could
+remove the `target` column. Use this template literally; only modify
+the inner "feature engineering" section:
+
+```python
+_SKIP = {"target", "signal_id", "event_timestamp"}
+
+def prepare(self, df: pd.DataFrame):
+    # 1. Extract the target FIRST. Don't overwrite `df` before this line.
+    y = df["target"].astype(int)
+
+    # 2. Build the feature frame from a *copy* of df, leaving the
+    #    original df (with target intact) alone.
+    X = df.drop(columns=_SKIP, errors="ignore").copy()
+
+    # 3. (Optional) feature engineering on X here — interactions,
+    #    polynomial terms, log transforms, derived columns. Modify
+    #    X freely but DO NOT touch `df` or re-introduce `target` to X.
+    #    Example:
+    #    X["rooms_per_household"] = X["total_rooms"] / X["households"]
+
+    return X, y
+```
+
+### Common failure modes — DO NOT do these
+
+- **Don't drop target then try to read it.** This is the most common
+  bug:
+  ```python
+  df = df.drop(columns=["target", ...])   # target gone from df
+  X = df
+  y = df["target"]                         # KeyError: 'target'
+  ```
+  Extract `y` BEFORE any drop / transform that could remove it.
+
+- **Don't apply pandas one-hot or scaling to the whole df at once.**
+  `pd.get_dummies(df)` rewrites every column including possibly target
+  if it's categorical. Apply transforms to `X` after the y/X split.
+
+- **Don't return a numpy array from prepare().** The harness expects
+  `X` to be a `pd.DataFrame` so `list(X.columns)` works downstream
+  for the bundle config.
 
 ## Strategy hints
 
