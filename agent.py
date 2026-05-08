@@ -187,13 +187,41 @@ def main():
     program = read(args.program)
     client = Anthropic()
 
+    # ---- baseline run: run the *unmodified* plugin once, before involving
+    # the LLM. If this fails, the data/plugin pair is broken and we bail
+    # out cleanly with a useful message — no point letting the LLM try to
+    # fix a bug that isn't its fault. The successful baseline metric
+    # becomes `best`, so subsequent proposals only get kept if they
+    # actually improve over the unmodified plugin.
+    print("===== baseline run (unmodified plugin) =====")
+    baseline = subprocess.run(
+        ["make", "train"], capture_output=True, text=True, env=os.environ.copy()
+    )
+    if baseline.returncode != 0:
+        tail = (baseline.stderr or baseline.stdout)[-500:].strip()
+        sys.exit(
+            "baseline training failed BEFORE the agent loop started — your "
+            "data/plugin pair is incompatible (often: ran `make data-movielens` "
+            "then `make agent` which targets the DefaultPlugin expecting a "
+            "supervised dataset with a `target` column).\n\n"
+            f"last stderr/stdout:\n{tail}\n\n"
+            "fix one of:\n"
+            "  • re-prep with a compatible dataset (`make data-sonar`, "
+            "`make data-iris`, `make data-housing`)\n"
+            "  • point --plugin at one that matches the data\n"
+        )
+    baseline_metric = parse_metric(baseline.stdout, args.metric)
+    if baseline_metric is None:
+        sys.exit("baseline trained but no validation_<name>=… metric in stdout")
+    print(f"baseline metric: {baseline_metric:.4f}")
+
     start = time.time()
     # history entries: (proposal_source, metric, kept_bool, why_reverted)
     # why_reverted is a short string (or None) the next iteration's prompt
     # uses to give the LLM concrete failure feedback so it doesn't keep
     # making the same mistake.
     history = []
-    best = -float("inf")
+    best = baseline_metric
 
     for i in range(1, args.max_iterations + 1):
         elapsed = time.time() - start
