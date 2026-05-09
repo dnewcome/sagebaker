@@ -282,6 +282,74 @@ from the file the config points at. The class definition lives in your
 repo — versioned, debuggable, hot-editable. Want to fix a bug in
 `forward()`? Edit, reload weights, done. No retrain.
 
+### Bundle file schemas (project convention)
+
+The bundle's metadata files use a sage-baker-specific schema, not an
+established standard. This is intentional — full control over what
+travels with the artifact (e.g. `prediction_threshold`,
+`data_lineage`) without committing to MLflow's `MLmodel` format. The
+trade-off is that bundles aren't natively loadable by mlflow without
+our `BundleWrapper` adapter, and someone familiar with `MLmodel` /
+ONNX / HuggingFace's `config.json` has to learn ours.
+
+Comparable formats and how ours relates to them:
+
+| Format              | Where you'd see it     | Why we don't use it directly                           |
+| ------------------- | ---------------------- | ----------------------------------------------------- |
+| MLflow `MLmodel`    | YAML, mlflow.pyfunc    | Locks bundle to mlflow's schema; we want the bundle to be loadable without mlflow |
+| HuggingFace `config.json` | transformers      | Same filename, completely different schema (transformer-architecture-specific) |
+| ONNX                | `.onnx`, runtime-portable | Bakes input/output specs into weights; cross-framework but locks to ONNX runtime |
+| TF SavedModel       | TF protobuf descriptor | TF-specific, opaque to non-TF tooling                 |
+
+#### `config.json` — required fields
+
+| Field                | Type            | Purpose                                                       |
+| -------------------- | --------------- | ------------------------------------------------------------- |
+| `plugin`             | string          | Plugin name that produced this bundle (registry key)          |
+| `task`               | enum            | `classification`, `regression`, `recommender`, `retrieval`    |
+| `framework`          | enum            | `sklearn`, `torch`, `lightgbm`, `faiss` — drives loader dispatch |
+| `framework_version`  | string          | Skew warning fires at load time if host version differs       |
+| `estimator`          | string          | Class name (e.g. `HistGradientBoostingClassifier`)            |
+| `estimator_module`   | string          | Module path (e.g. `sklearn.ensemble._hist_gradient_boosting...`) |
+| `params`             | object          | Constructor kwargs — what gets passed to `EstimatorClass(**params)` |
+| `weights_file`       | string          | Filename of the weights blob within the bundle dir            |
+| `weights_format`     | enum            | `joblib`, `skops`, `safetensors`, `lightgbm-text`, `faiss`    |
+| `feature_names`      | array of string | Ordered column names the model expects at inference time     |
+| `metric_name`        | string          | Field name of the validation metric in `metadata.json`        |
+
+Optional fields the bundle may carry:
+
+| Field                  | Type             | Purpose                                                  |
+| ---------------------- | ---------------- | -------------------------------------------------------- |
+| `classes`              | array            | Classification only — class labels in `predict_proba` order |
+| `prediction_threshold` | number           | Binary classification — `predict()` decision threshold (default 0.5) |
+| `embedder_model`       | string           | Retrieval — HuggingFace model name for the encoder       |
+| `embedding_dim`        | integer          | Retrieval — vector dimension                             |
+| `n_items`              | integer          | Recommender / retrieval — corpus size                    |
+| `default_top_k`        | integer          | Retrieval — default `k` when caller doesn't specify     |
+
+#### `metadata.json` — required fields
+
+| Field             | Type       | Purpose                                                       |
+| ----------------- | ---------- | ------------------------------------------------------------- |
+| `saved_at`        | ISO 8601   | UTC timestamp the bundle was written                          |
+| `python`          | string     | Python interpreter version that wrote the bundle              |
+| `git_sha`         | string     | Repo commit at training time (when invoked from a git work-tree) |
+| `<metric_name>`   | number     | The validation metric value (field name matches `config.metric_name`) |
+| `n_train`         | integer    | Training set row count                                        |
+| `n_test`          | integer    | Held-out evaluation set row count                             |
+| `dataset_file`    | string     | Filename of the source data parquet/csv                       |
+
+Optional fields:
+
+| Field           | Type   | Purpose                                                     |
+| --------------- | ------ | ----------------------------------------------------------- |
+| `data_lineage`  | object | Embedded `data/<dataset>/lineage.json` if the prep script wrote one — source query / sha / row count |
+
+Converters between this format and standards (`MLmodel` import/export,
+ONNX export, HuggingFace-shaped retrieval bundles) are TODO — see
+[issue #1](https://github.com/dnewcome/sage-baker/issues/1).
+
 ### Format choices
 
 | Thing                          | Format                                       |
