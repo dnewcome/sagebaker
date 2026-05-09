@@ -92,8 +92,21 @@ def strip_fences(text):
     return text.strip()
 
 
+_CAPS_CALL_RE = re.compile(r"\b([A-Z][A-Za-z]{3,}[A-Za-z0-9]*)\s*\(")
+
+
+def extract_estimator_classes(src):
+    """Best-effort: pick out CapCase identifiers that look like estimator
+    constructions in the proposal. Drives the --diversify prompt.
+
+    Catches RandomForestClassifier(...), GradientBoostingRegressor(...),
+    Pipeline(...), LogisticRegression(...) etc. Some false positives
+    (e.g. ColumnTransformer) are fine — the LLM gets the gist."""
+    return set(_CAPS_CALL_RE.findall(src))
+
+
 def propose(client, program, plugin_path, plugin_src, history, best,
-            iters_since_improvement):
+            iters_since_improvement, diversify=False):
     """Ask the model for a new plugin version.
 
     History is summarized with a short hash of each prior proposal so
@@ -120,6 +133,25 @@ def propose(client, program, plugin_path, plugin_src, history, best,
         history_summary = "  (none yet — this is iteration 1)"
 
     best_str = f"{best:.4f}" if best > -float("inf") else "no successful runs yet"
+
+    diversify_clause = ""
+    if diversify and history:
+        tried = set()
+        for snap, _, kept, _ in history:
+            if kept:
+                tried |= extract_estimator_classes(snap)
+        # Always include classes from the current plugin too — that's
+        # the baseline, which is "kept" by being the unmodified file.
+        tried |= extract_estimator_classes(plugin_src)
+        if tried:
+            tried_str = ", ".join(sorted(tried))
+            diversify_clause = (
+                f"\n# Diversity mode (--diversify ON)\n"
+                f"Classes / pipeline elements seen so far in successful "
+                f"plugins: {tried_str}.\n"
+                f"Strongly prefer a model class NOT in that list this "
+                f"iteration. The goal is to explore the model-family space, "
+                f"not deeply tune one family.\n")
 
     # When the LLM has been hill-climbing the same model family and
     # plateaued, push it to try something qualitatively different —
@@ -150,7 +182,7 @@ def propose(client, program, plugin_path, plugin_src, history, best,
 {history_summary}
 
 # Best metric so far: {best_str}
-# Iterations since last improvement: {iters_since_improvement}
+# Iterations since last improvement: {iters_since_improvement}{diversify_clause}
 
 # Mandatory constraints
 
@@ -218,6 +250,11 @@ def main():
     p.add_argument("--max-iterations", type=int, default=20)
     p.add_argument("--budget-seconds", type=int, default=1800,
                    help="wall-clock cap (default 30 min)")
+    p.add_argument("--diversify", action="store_true",
+                   help="explicitly track sklearn estimator classes used in "
+                        "kept proposals and ask the LLM to prefer un-tried "
+                        "classes. Default off — the stuck-signal already nudges "
+                        "diversity when the loop plateaus.")
     args = p.parse_args()
 
     load_dotenv()  # so `python agent.py` works without `make` in front
@@ -300,7 +337,8 @@ def main():
 
             try:
                 proposal = propose(client, program, args.plugin, plugin_src,
-                                   history, best, iters_since_improvement)
+                                   history, best, iters_since_improvement,
+                                   diversify=args.diversify)
             except Exception as e:
                 print(f"  LLM call failed: {e}")
                 history.append(("", -1.0, False, f"LLM call failed: {e}"))
