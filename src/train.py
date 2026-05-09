@@ -88,7 +88,12 @@ def main():
                    + glob.glob(os.path.join(args.train, "*.parquet")))
     if not files:
         raise SystemExit(f"no .csv or .parquet file found in {args.train}")
-    path = files[0]
+    # Prefer files named training.* — the canonical name for the model-input
+    # dataset. Otherwise fall back to alphabetical first. This lets a prepare
+    # script write sibling files (e.g. ground_truth.parquet from
+    # simulate/scenarios/*) into the same dir without confusing the trainer.
+    preferred = [f for f in files if os.path.basename(f).startswith("training.")]
+    path = preferred[0] if preferred else files[0]
     df = pd.read_parquet(path) if path.endswith(".parquet") else pd.read_csv(path)
     print(f"loaded {path}: {len(df)} rows, {len(df.columns)} columns")
 

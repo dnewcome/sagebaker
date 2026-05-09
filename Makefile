@@ -104,6 +104,9 @@ train-als: ## Host-side ALS training (run data-als + install-recommender first)
 train-housing: ## Host-side regression on California housing (R² metric)
 	$(PY) src/train.py --train $(DATA_DIR) --model-dir ./model_housing --plugin housing
 
+train-clickstream: ## Host-side conversion classification on a fuzzy_clickstream dataset
+	$(PY) src/train.py --train ./data_fuzzy --model-dir ./model_clickstream --plugin clickstream
+
 train-torch: ## Host-side torch (MLP) training
 	$(PY) src/train_torch.py --train $(DATA_DIR) --model-dir ./model_torch
 
