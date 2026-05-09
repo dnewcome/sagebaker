@@ -45,11 +45,11 @@ src/train_recommender.py recommender harness (currently used with the ALS plugin
 src/plugins/           plugin system: base.py + default.py / housing.py / als.py
                        (auto-discovers extra files in src/plugins/private/, gitignored)
 feature_repo/          Feast feature definitions (entities.py, features.py, store.yaml)
-prepare_data.py        writes data/iris.csv + lineage.json (toy multiclass dataset)
-prepare_sonar.py       writes data/sonar.csv + Feast parquets + lineage.json
+prep/prepare_data.py        writes data/iris.csv + lineage.json (toy multiclass dataset)
+prep/prepare_sonar.py       writes data/sonar.csv + Feast parquets + lineage.json
 prepare.py             plugin-aware prep dispatcher (`--plugin housing` etc.)
-prepare_movielens.py   fetches MovieLens-100K for the ALS recommender path
-prepare_bigquery.py    materializes a BigQuery query to parquet + lineage.json
+prep/prepare_movielens.py   fetches MovieLens-100K for the ALS recommender path
+prep/prepare_bigquery.py    materializes a BigQuery query to parquet + lineage.json
 demo_categorical.py    runnable demo of "new enum value at inference" bug + 3 fixes
 agent.py               autoresearch-style agent loop — edits a plugin iteratively
 program.md             agent prompt for the classification baseline (sonar)
@@ -688,7 +688,7 @@ This prototype skips DynamoDB entirely.
 
 ```mermaid
 flowchart LR
-  KAGGLE[Kaggle / UCI / ...<br/>CSV] --> PREP[prepare_sonar.py]
+  KAGGLE[Kaggle / UCI / ...<br/>CSV] --> PREP[prep/prepare_sonar.py]
   PREP --> CSV[data/sonar.csv<br/><i>non-Feast trainers</i>]
   PREP --> FEAT[(feature_repo/<br/>sonar_features.parquet)]
   PREP --> LBL[(feature_repo/<br/>sonar_labels.parquet)]
@@ -719,7 +719,7 @@ flowchart LR
 
 ```bash
 .venv/bin/pip install -r requirements-feast.txt
-.venv/bin/python prepare_sonar.py    # also writes feast parquets
+.venv/bin/python prep/prepare_sonar.py    # also writes feast parquets
 
 # register entities + feature views
 cd feature_repo && ../.venv/bin/feast apply && cd ..
@@ -752,7 +752,7 @@ the whole point of a feature store.
 
 ### Why CSV → Parquet at prep time
 
-You can keep importing CSVs from Kaggle (`prepare_sonar.py` still pulls
+You can keep importing CSVs from Kaggle (`prep/prepare_sonar.py` still pulls
 the same dataset). Feast's `FileSource` is parquet-native, so we convert
 once at prep time. Keeps your data-import workflow identical and lets
 Feast do its job.
@@ -828,7 +828,7 @@ on so the model can be audited later**.
 ```mermaid
 flowchart LR
   WH[(BigQuery /<br/>Snowflake / etc.)]
-  PREP[prepare_bigquery.py<br/><i>SQL → parquet</i>]
+  PREP[prep/prepare_bigquery.py<br/><i>SQL → parquet</i>]
   PQ[data/training.parquet]
   LIN[data/lineage.json<br/><i>query, snapshot_ts, sha256</i>]
   TR[trainer]
@@ -860,7 +860,7 @@ For the model to point back at the data it saw, the bundle needs:
 | `dataset_sha256` | hash of the materialized parquet file — drift detector |
 | `dataset_n_rows` / `n_cols` | shape sanity check |
 
-`prepare_bigquery.py` writes all of these to `data/lineage.json`;
+`prep/prepare_bigquery.py` writes all of these to `data/lineage.json`;
 `bundle.load_lineage()` reads it inside the trainer; the bundle's
 `metadata.json` ends up with a `data_lineage` block. Inspecting any
 trained model now answers "what did this train on?":
@@ -890,7 +890,7 @@ gcloud auth application-default login   # one option
 # - or -
 cp .env.example .env                    # then edit GOOGLE_APPLICATION_CREDENTIALS
 
-# default query hits a public dataset (iris); edit prepare_bigquery.py for yours
+# default query hits a public dataset (iris); edit prep/prepare_bigquery.py for yours
 make data-bigquery
 make train MODEL_DIR=./models/bq
 ```
@@ -908,7 +908,7 @@ sonar dataset as a stand-in:
 ```bash
 make data-sonar          # generate data/sonar.csv locally
 make bq-upload-sonar     # one-time: creates $PROJECT.sage_baker.sonar
-make bq-data-sonar       # materializes the table back via prepare_bigquery.py
+make bq-data-sonar       # materializes the table back via prep/prepare_bigquery.py
 make train MODEL_DIR=./models/bq_sonar
 cat models/bq_sonar/metadata.json | jq .data_lineage
 ```
@@ -1077,7 +1077,7 @@ Concrete steps:
 
 1. **Get the data into the project.** Write a `prepare_<name>.py` that
    fetches it, shapes it (CSV or parquet with a `target` column), and
-   drops `data/lineage.json`. Use `prepare_sonar.py` as a template.
+   drops `data/lineage.json`. Use `prep/prepare_sonar.py` as a template.
 2. **Pick or write a trainer.** The existing ones cover the common
    cases:
    - `src/train.py` — sklearn (RandomForest by default)
@@ -1298,7 +1298,7 @@ The flow for a new project:
 
 ```bash
 # 1. Prepare a subset for fast iteration (BQ, CSV, whatever)
-.venv/bin/python prepare_bigquery.py \
+.venv/bin/python prep/prepare_bigquery.py \
     --query "SELECT … FROM proj.ds.tbl LIMIT 50000" \
     --output ./data/X/training.parquet
 
@@ -1413,7 +1413,7 @@ flowchart LR
 | ----- | ---------- |
 | `local_train.py` (host SDK call) | **SageMaker Pipeline** — see `pipeline.py` in this repo. Orchestrates ProcessingStep → TrainingStep → EvalStep → RegisterModel. |
 | `data/sonar.csv` mounted via `file://` | **S3** as the training channel: `estimator.fit({"train": "s3://bucket/training/<run-id>/"})`. |
-| `prepare_bigquery.py` on host | **SageMaker Processing job** running the same script. Inputs from BQ (or upstream S3), outputs to S3. Captures `lineage.json` as a sidecar. |
+| `prep/prepare_bigquery.py` on host | **SageMaker Processing job** running the same script. Inputs from BQ (or upstream S3), outputs to S3. Captures `lineage.json` as a sidecar. |
 | Feast: SQLite + parquet on disk | Feast: **Postgres on RDS** (online + registry) + **S3** (offline parquet). One config file change in `feature_store.yaml`. |
 | `mlflow.db` + `mlartifacts/` local | **AWS Managed MLflow** (newer, cheapest hands-off) or self-hosted ECS + RDS Postgres + S3 artifacts. |
 | AWS access keys in `aws configure` | **IAM role assumed by SageMaker**. Service account never holds long-lived creds. |
@@ -1429,7 +1429,7 @@ DLC images you'd use in production (no custom ECR push needed):
 `pipeline.py` is a sketch (untested in cloud — fill in your account
 constants). Five steps:
 
-1. **Prepare** (`ProcessingStep`) — runs `prepare_bigquery.py` (or
+1. **Prepare** (`ProcessingStep`) — runs `prep/prepare_bigquery.py` (or
    whatever materialization script) inside the SKLearn DLC. Reads from
    BQ / S3, writes parquet + `lineage.json` to S3.
 2. **Train** (`TrainingStep`) — runs `src/train.py` unchanged via the

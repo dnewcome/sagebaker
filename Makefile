@@ -66,43 +66,43 @@ install-all: install install-torch install-lightgbm install-skops install-feast 
 # ---------- data prep ---------------------------------------------------
 
 data-iris: ## Prepare iris dataset (sklearn-bundled, 3-class)
-	$(PY) prepare_data.py
+	$(PY) prep/prepare_data.py
 
 data-sonar: ## Prepare sonar dataset + Feast parquets (binary)
-	$(PY) prepare_sonar.py
+	$(PY) prep/prepare_sonar.py
 
 data-als: ## Prepare synthetic ALS dataset (generic user × item interactions)
-	$(PY) prepare.py --plugin als
+	$(PY) prep/prepare.py --plugin als
 
 data-housing: ## Prepare California housing (sklearn-bundled, regression)
-	$(PY) prepare.py --plugin housing
+	$(PY) prep/prepare.py --plugin housing
 
 data-movielens: ## Fetch MovieLens-100K (~1.7 MB) for the ALS recommender path
-	$(PY) prepare_movielens.py
+	$(PY) prep/prepare_movielens.py
 
 data-simulate: ## Run a simulated scenario: SCENARIO=<name> OUTPUT=<dir>
-	$(PY) prepare_simulate.py --scenario $(SCENARIO) --output $(OUTPUT)
+	$(PY) prep/prepare_simulate.py --scenario $(SCENARIO) --output $(OUTPUT)
 
 data-fuzzy: ## Generate fuzzy_clickstream scenario into ./data/fuzzy/
-	$(PY) prepare_simulate.py --scenario fuzzy_clickstream --output ./data/fuzzy/
+	$(PY) prep/prepare_simulate.py --scenario fuzzy_clickstream --output ./data/fuzzy/
 
 data-products: ## Generate product_catalog scenario into ./data/products/
-	$(PY) prepare_simulate.py --scenario product_catalog --output ./data/products/
+	$(PY) prep/prepare_simulate.py --scenario product_catalog --output ./data/products/
 
 data-linkage: ## Build pair-level dataset from ./data/fuzzy/ for record-linkage training
-	$(PY) prepare_linkage.py --input ./data/fuzzy --output ./data/linkage --n-pairs 20000
+	$(PY) prep/prepare_linkage.py --input ./data/fuzzy --output ./data/linkage --n-pairs 20000
 
 data-matcher-pairs: ## Build pair-level dataset from ./data/products/ for product-matching training
-	$(PY) prepare_matcher_pairs.py --input ./data/products --output ./data/matcher --n-pairs 5000
+	$(PY) prep/prepare_matcher_pairs.py --input ./data/products --output ./data/matcher --n-pairs 5000
 
 data-bigquery: ## Materialize a BigQuery query (default: public iris dataset)
-	$(PY) prepare_bigquery.py
+	$(PY) prep/prepare_bigquery.py
 
 bq-upload-sonar: ## Upload data/sonar.csv to BQ as $PROJECT.sage_baker.sonar
 	$(PY) upload_sonar_to_bq.py
 
 bq-data-sonar: ## Materialize the sonar table back from BQ (after bq-upload-sonar)
-	$(PY) prepare_bigquery.py \
+	$(PY) prep/prepare_bigquery.py \
 		--query "SELECT * FROM \`$(GOOGLE_CLOUD_PROJECT).sage_baker.sonar\`"
 
 # ---------- training (host-side) ---------------------------------------

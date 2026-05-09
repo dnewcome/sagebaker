@@ -1,6 +1,6 @@
 """product_matcher plugin: predict same-canonical from cross-retailer pairs.
 
-Trains on the pair-level dataset emitted by `prepare_matcher_pairs.py`,
+Trains on the pair-level dataset emitted by `prep/prepare_matcher_pairs.py`,
 where each row is a (offering_a, offering_b) pair from the synthetic
 product_catalog scenario, with binary target = 1 if both offerings are
 listings of the same canonical product.

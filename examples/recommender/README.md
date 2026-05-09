@@ -37,7 +37,7 @@ published-results range for the dataset.
 | [`src/plugins/als.py`](../../src/plugins/als.py) | The ALS plugin |
 | [`src/plugins/base_recommender.py`](../../src/plugins/base_recommender.py) | `RecommenderPlugin` base contract — different from `TrainingPlugin` |
 | [`src/train_recommender.py`](../../src/train_recommender.py) | Recommender harness (no row-level train/test split; user-leave-N-out instead) |
-| [`prepare_movielens.py`](../../prepare_movielens.py) | Fetches MovieLens-100K, maps schema to `user_id`/`item_id`/`weight` |
+| [`prep/prepare_movielens.py`](../../prep/prepare_movielens.py) | Fetches MovieLens-100K, maps schema to `user_id`/`item_id`/`weight` |
 | `data/movielens.csv` | Real public dataset (gitignored after download) |
 | `models/als/` | Bundle: ALS factors + item ID mapping (gitignored) |
 

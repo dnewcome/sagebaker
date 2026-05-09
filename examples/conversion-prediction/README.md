@@ -66,7 +66,7 @@ The default scenario has 100% anonymous users, near-unique
 fingerprints, stable IP buckets per user. Dial in realistic mess:
 
 ```bash
-.venv/bin/python prepare_simulate.py --scenario fuzzy_clickstream \
+.venv/bin/python prep/prepare_simulate.py --scenario fuzzy_clickstream \
   --output ./data/fuzzy/ \
   --identified-fraction 0.2 \
   --ip-drift 0.3 --fingerprint-drift 0.3 \

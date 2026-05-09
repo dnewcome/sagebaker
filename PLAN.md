@@ -92,7 +92,7 @@ public dataset, so the recommender path is exercisable on a clone.
 
 ### Result
 
-`prepare_movielens.py` fetches MovieLens-100K (1.7 MB, no auth) from
+`prep/prepare_movielens.py` fetches MovieLens-100K (1.7 MB, no auth) from
 grouplens.org, maps the schema to what the ALS plugin already
 expects (`user_id` / `item_id` / `weight` + bonus `timestamp`),
 writes `data/movielens.csv` + `lineage.json`. ALS plugin needed zero

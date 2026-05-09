@@ -1,7 +1,7 @@
 """One-time: upload data/sonar.csv to BigQuery as sage_baker.sonar.
 
 Idempotent — recreates the table on each run via WRITE_TRUNCATE. After
-this, prepare_bigquery.py can query the table like any other BQ source.
+this, prep/prepare_bigquery.py can query the table like any other BQ source.
 
 Prereqs:
   GOOGLE_APPLICATION_CREDENTIALS + GOOGLE_CLOUD_PROJECT set (via .env)
@@ -59,4 +59,4 @@ table = client.get_table(TABLE_ID)
 print(f"uploaded → {TABLE_ID} ({table.num_rows} rows, {len(table.schema)} cols)")
 print(f"\ntry it:")
 print(f"  bq query --nouse_legacy_sql 'SELECT COUNT(*) FROM `{TABLE_ID}`'")
-print(f"  make bq-data-sonar    # materialize via prepare_bigquery.py + train")
+print(f"  make bq-data-sonar    # materialize via prep/prepare_bigquery.py + train")

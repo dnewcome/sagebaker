@@ -67,7 +67,7 @@ processor = SKLearnProcessor(
 prep_step = ProcessingStep(
     name="prepare",
     processor=processor,
-    code="prepare_bigquery.py",  # or your real prep script
+    code="prep/prepare_bigquery.py",  # or your real prep script
     inputs=[ProcessingInput(source=input_data, destination="/opt/ml/processing/input/")],
     outputs=[
         ProcessingOutput(

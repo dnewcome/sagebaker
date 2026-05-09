@@ -40,7 +40,7 @@ brand-token match, category match, and price ratio.
 | Path | What it is |
 | --- | --- |
 | [`src/plugins/product_matcher.py`](../../src/plugins/product_matcher.py) | The matcher plugin (binary HistGB on pair features) |
-| [`prepare_matcher_pairs.py`](../../prepare_matcher_pairs.py) | Pair sampler: cross-retailer positives, optional same-category negatives |
+| [`prep/prepare_matcher_pairs.py`](../../prep/prepare_matcher_pairs.py) | Pair sampler: cross-retailer positives, optional same-category negatives |
 | [`simulate/scenarios/product_catalog.py`](../../simulate/scenarios/product_catalog.py) | Synthetic catalog generator |
 | [`simulate/products.py`](../../simulate/products.py) | Canonical-product templates + retailer configs + title noiser |
 | `data/products/` | Generated catalog + ground truth (gitignored) |
@@ -52,7 +52,7 @@ brand-token match, category match, and price ratio.
 ### Make the negatives harder
 
 ```bash
-.venv/bin/python prepare_matcher_pairs.py \
+.venv/bin/python prep/prepare_matcher_pairs.py \
   --input ./data/products --output ./data/matcher \
   --n-pairs 5000 --same-category-negatives
 ```
@@ -86,7 +86,7 @@ test feature robustness.
 
 For a real catalog at work, the path is:
 
-1. **Replace the synthetic catalog**: point `prepare_matcher_pairs.py`
+1. **Replace the synthetic catalog**: point `prep/prepare_matcher_pairs.py`
    at a real catalog parquet that has the same column shape
    (`catalog_id`, `retailer`, `sku`, `gtin`, `title`, `category`,
    `list_price`, plus a `true_canonical_id` ground-truth column for
