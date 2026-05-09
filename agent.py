@@ -28,6 +28,7 @@ import argparse
 import ast
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -61,7 +62,63 @@ def write(path, content):
 
 
 def revert(path):
+    """Revert a file to its last committed state via git checkout."""
     subprocess.run(["git", "checkout", "--", path], check=True)
+
+
+KEEPS_DIR = Path(".agent-keeps")
+
+
+def init_keeps_dir(plugin_stem):
+    """Wipe and re-create this plugin's keeps subdir so 'best of this run'
+    is unambiguous. Each agent run starts with a clean slate."""
+    plugin_keeps = KEEPS_DIR / plugin_stem
+    if plugin_keeps.exists():
+        shutil.rmtree(plugin_keeps)
+    plugin_keeps.mkdir(parents=True, exist_ok=True)
+    return plugin_keeps
+
+
+def save_keep(plugin_path, iter_n, metric, keeps_dir):
+    """Snapshot the current plugin file to <keeps_dir>/iter-NNN-METRIC.py.
+
+    The metric is encoded into the filename so `best_keep` can sort by it
+    without parsing files. Filenames look like `iter-007-0.8219.py`.
+    """
+    fname = f"iter-{iter_n:03d}-{metric:.4f}.py"
+    out = keeps_dir / fname
+    out.write_text(Path(plugin_path).read_text())
+    return out
+
+
+def best_keep(keeps_dir):
+    """Return the path of the highest-metric keep in keeps_dir, or None."""
+    candidates = list(keeps_dir.glob("iter-*.py"))
+    if not candidates:
+        return None
+    def metric_of(p):
+        m = re.search(r"-(\d+\.\d+)\.py$", p.name)
+        return float(m.group(1)) if m else 0.0
+    return max(candidates, key=metric_of)
+
+
+def revert_to_best(plugin_path, keeps_dir):
+    """Restore the plugin file to the best-kept version of THIS run.
+
+    Why this exists: `git checkout --` reverts to the last *committed*
+    state, which is the pre-run baseline. If the agent kept a winning
+    proposal at iter 7 (uncommitted) and then iter 12 fails, a naive
+    git-checkout would blow away iter 7's work. Reverting to the
+    best-keep file preserves wins instead.
+
+    Falls back to git checkout if no keeps exist yet (we're early in
+    the run and the baseline IS the best so far).
+    """
+    best = best_keep(keeps_dir)
+    if best is not None:
+        Path(plugin_path).write_text(best.read_text())
+    else:
+        revert(plugin_path)
 
 
 def syntax_ok(source):
@@ -288,6 +345,12 @@ def main():
     ]
     print(f"plugin: {plugin_name} | trainer: {' '.join(train_cmd)}")
 
+    # Per-run keeps dir: each successful proposal is snapshotted here so
+    # later reverts can restore the best keep instead of the pre-run
+    # baseline. Wiped at start of every run.
+    keeps_dir = init_keeps_dir(plugin_name)
+    print(f"keeps dir: {keeps_dir}")
+
     # ---- baseline run: run the *unmodified* plugin once, before involving
     # the LLM. If this fails, the data/plugin pair is broken and we bail
     # out cleanly with a useful message — no point letting the LLM try to
@@ -376,7 +439,7 @@ def main():
                 why = f"training failed (exit {result.returncode}). last stderr/stdout:\n{err_tail}"
                 print(f"  training failed (exit {result.returncode}); reverting")
                 print(f"  last stderr: {err_tail[-300:]}")
-                revert(args.plugin)
+                revert_to_best(args.plugin, keeps_dir)
                 history.append((proposal, -1.0, False, why))
                 iters_since_improvement += 1
                 continue
@@ -386,7 +449,7 @@ def main():
                 why = (f"training succeeded but no validation_<name>=… line in stdout "
                        f"(expected pattern '{args.metric or 'validation_<anything>'}')")
                 print(f"  {why}; reverting")
-                revert(args.plugin)
+                revert_to_best(args.plugin, keeps_dir)
                 history.append((proposal, -1.0, False, why))
                 iters_since_improvement += 1
                 continue
@@ -396,23 +459,37 @@ def main():
             if keep:
                 best = metric
                 iters_since_improvement = 0
+                save_keep(args.plugin, i, metric, keeps_dir)
                 history.append((proposal, metric, True, None))
             else:
-                revert(args.plugin)
+                revert_to_best(args.plugin, keeps_dir)
                 iters_since_improvement += 1
                 why = (f"metric {metric:.4f} did not beat current best "
                        f"{best:.4f}")
                 history.append((proposal, metric, False, why))
     except KeyboardInterrupt:
         interrupted = True
-        print("\n\n  Ctrl-C — stopping the loop, working tree is at the current best.")
+        print("\n\n  Ctrl-C — stopping the loop, restoring best keep.")
+
+    # Final restore: ensure the on-disk plugin matches the best metric we
+    # tracked. Without this, an interrupted run can leave the file in a
+    # half-written proposal state.
+    revert_to_best(args.plugin, keeps_dir)
 
     kept = sum(1 for entry in history if entry[2])
     header = "interrupted" if interrupted else "done"
     print(f"\n===== {header} =====")
     print(f"  iterations: {len(history)} ({kept} kept, {len(history) - kept} reverted)")
-    print(f"  best metric: {best:.4f}" if best > -float("inf") else "  no successful runs")
-    print(f"  final plugin: {args.plugin} (whatever's currently checked out)")
+    if best > -float("inf"):
+        print(f"  best metric: {best:.4f}")
+        best_path = best_keep(keeps_dir)
+        if best_path is not None:
+            print(f"  restored final plugin from {best_path}")
+        else:
+            print(f"  no proposal beat baseline — plugin reverted to git HEAD")
+    else:
+        print("  no successful runs")
+    print(f"  final plugin: {args.plugin}")
 
 
 if __name__ == "__main__":

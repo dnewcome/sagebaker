@@ -33,6 +33,9 @@ Makefile.private
 # Generated simulator output (lots of these as you experiment with seeds)
 data_*/
 
+# agent.py per-run keeps — backups so reverts don't blow away winning proposals
+.agent-keeps/
+
 # Claude Code: ship project skills, hooks, and settings — ignore per-user state
 .claude/*
 !.claude/skills/
