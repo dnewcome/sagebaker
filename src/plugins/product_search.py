@@ -14,6 +14,8 @@ Embedder: sentence-transformers/all-MiniLM-L6-v2 by default
 `embedder_model` config. For a tighter latency budget swap to a
 distilled MiniLM-3 layer; for higher quality swap to mpnet-base.
 """
+import pandas as pd
+
 from .base_retrieval import CorpusItem, RetrievalPlugin
 
 
@@ -24,19 +26,32 @@ class ProductSearchPlugin(RetrievalPlugin):
     name = "product_search"
     embedder_model: str = _DEFAULT_EMBEDDER
 
+    # Columns whose values get concatenated into the embedded text (in order).
+    # Override in a subclass if you have a richer text column.
+    text_columns: tuple[str, ...] = ("title", "description")
+
+    # Columns NOT to pass through as metadata (typically because they ARE
+    # the embedded text, or are too large to include in every query result).
+    skip_metadata_columns: tuple[str, ...] = ("description",)
+
+    # Columns that MUST be in the metadata if present — the primary key
+    # for the catalog. Tries each in order, picks the first that exists.
+    id_columns: tuple[str, ...] = ("product_id", "catalog_id", "sku")
+
     def prepare_corpus(self, df) -> list[CorpusItem]:
+        # Build the text from configured columns, joined by ". ".
+        text_cols = [c for c in self.text_columns if c in df.columns]
         items = []
         for _, row in df.iterrows():
-            text = str(row.get("title", "")).strip()
-            if "description" in row and row["description"] is not None:
-                text = f"{text}. {row['description']}"
+            text_parts = [str(row[c]).strip() for c in text_cols
+                          if pd.notna(row[c]) and str(row[c]).strip()]
+            text = ". ".join(text_parts)
+            # Pass through every column except text-only ones and NaNs as metadata.
             metadata = {
-                "product_id": row["product_id"],
-                "title": row.get("title"),
-                "category": row.get("category"),
+                k: (v.item() if hasattr(v, "item") else v)
+                for k, v in row.items()
+                if k not in self.skip_metadata_columns and pd.notna(v)
             }
-            # Drop None/NaN values so JSON output is clean at query time.
-            metadata = {k: v for k, v in metadata.items() if v is not None}
             items.append(CorpusItem(text=text, metadata=metadata))
         return items
 

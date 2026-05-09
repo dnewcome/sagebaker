@@ -52,6 +52,9 @@ install-jupyter: ## Install Jupyter and register the project kernel
 install-recommender: ## Install recommender extras (implicit, scipy, pyarrow)
 	$(PIP) install -r requirements-recommender.txt
 
+install-retrieval: ## Install semantic-search extras (sentence-transformers, faiss-cpu)
+	$(PIP) install -r requirements-retrieval.txt
+
 install-agent: ## Install autoresearch-style agent extras (anthropic SDK)
 	$(PIP) install -r requirements-agent.txt
 
@@ -115,6 +118,9 @@ train-clickstream: ## Host-side conversion classification on a fuzzy_clickstream
 
 train-clickstream-linkage: ## Train record-linkage model on pair-level data (run data-linkage first)
 	$(PY) src/train.py --train ./data_linkage --model-dir ./model_clickstream_linkage --plugin clickstream_linkage
+
+train-search: ## Build a FAISS semantic-search index on the product catalog (run data-products first)
+	$(PY) src/train_retrieval.py --train ./data_products --model-dir ./model_search --plugin product_search
 
 train-torch: ## Host-side torch (MLP) training
 	$(PY) src/train_torch.py --train $(DATA_DIR) --model-dir ./model_torch
