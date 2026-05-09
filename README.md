@@ -528,6 +528,68 @@ container only for testing the SageMaker-deployment-shaped path.
 For a remote MLflow server (e.g. company's), no rewrite happens — the
 driver passes the URL through unchanged.
 
+### Local iteration vs. production push
+
+The intended workflow has **two distinct MLflow instances**:
+
+| | **Local MLflow** | **Production MLflow** |
+| --- | --- | --- |
+| Tracking store | SQLite (`mlflow.db`) | Managed Postgres/MySQL (RDS) |
+| Artifact store | `./mlartifacts/` | `s3://<your-bucket>/mlflow-artifacts/` |
+| Where it runs | Researcher's laptop | Cloud, behind your VPN/auth |
+| What lives in it | Throwaway iteration runs on subsets | Canonical model versions trained on full data |
+
+The expected loop:
+
+1. **Iterate locally.** Researcher pulls a subset (BQ query → parquet,
+   `make data-fuzzy`, etc.), runs `agent.py` or `make train-*` against
+   it, logs to local MLflow. Hundreds of runs is fine — they're
+   disposable.
+2. **Commit code.** Once a plugin / scenario / threshold is good enough,
+   push the *code* to git. Crucially, do **not** push the local model
+   bundle anywhere (`model_*/` is gitignored on purpose). Local
+   artifacts stay local.
+3. **Cloud trains on full data.** Your CI pipeline (or a SageMaker
+   training job, or just a beefier box with a service account) checks
+   out the commit, runs the same trainer against the full dataset, and
+   logs to **production MLflow** with `MLFLOW_TRACKING_URI` pointed at
+   the prod server. That run's artifacts land in S3.
+4. **Promote and serve.** Production MLflow holds the canonical
+   versions (`models:/<name>/<version>`). Inference servers
+   (mlflow-serve-http, SageMaker endpoints, whatever) point at the
+   prod tracking URI and download artifacts from S3 transparently.
+
+This means **researchers never push a model directly to S3**. They push
+*code* via git; cloud infrastructure produces the production-grade run.
+Same plugin code runs in both places — the only thing that changes is
+the dataset size and the tracking URI.
+
+If you want a **staging push** (a real cloud run on a smaller / sample
+dataset, before the full-data prod run), that's still cloud-side: same
+flow, just point at a staging tracking server / staging S3 prefix.
+It's not "local with S3 artifacts" — local should stay self-contained.
+
+#### Pointing a server at S3 (when you actually need it)
+
+If you do want a single MLflow server backed by S3 artifacts (for the
+cloud training environment, not local), it's one config change:
+
+```bash
+mlflow server \
+    --host 0.0.0.0 --port 5000 \
+    --backend-store-uri postgresql://user:pw@rds-host/mlflow \
+    --default-artifact-root s3://your-bucket/mlflow-artifacts/
+```
+
+Boto3 picks up AWS creds from the standard places (instance profile,
+`~/.aws/credentials`, env vars). No code changes in `train.py` or the
+bundle wrapper — the artifact uploader already routes by URI scheme.
+
+Threshold tuning interacts cleanly with this: `prediction_threshold` in
+`config.json` ships with the artifact, so changing it in a config file
+and re-uploading via a quick `mlflow.pyfunc.log_model` call (no
+retrain, just re-register) is enough to roll out a calibration change.
+
 ## Feature store: Feast prototype
 
 Feast solves three real problems training pipelines tend to botch:
