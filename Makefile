@@ -144,6 +144,20 @@ serve: ## Run local_serve.py against $MODEL_DIR
 mlflow-serve: ## Load model via MLflow Model Registry
 	MLFLOW_TRACKING_URI=$(MLFLOW_URI) $(PY) mlflow_serve.py
 
+mlflow-serve-http: ## HTTP scoring server: curl POST to localhost:5001/invocations. Override NAME/VERSION/PORT.
+	@$(eval NAME ?= sage-baker-sklearn)
+	@$(eval VERSION ?= latest)
+	@$(eval PORT ?= 5001)
+	@echo "serving models:/$(NAME)/$(VERSION) on port $(PORT) — POST to http://127.0.0.1:$(PORT)/invocations"
+	@echo 'payload format: {"dataframe_records": [{<feature_name>: <value>, ...}]}'
+	PYTHONPATH=$(CURDIR)/src \
+	PATH="$(CURDIR)/$(VENV)/bin:$(PATH)" \
+	MLFLOW_TRACKING_URI=$(MLFLOW_URI) \
+	$(VENV)/bin/mlflow models serve \
+	  -m "models:/$(NAME)/$(VERSION)" \
+	  -p $(PORT) --host 127.0.0.1 \
+	  --env-manager local
+
 demo-categorical: ## Demo: 'new enum value at inference' bug + 3 fixes
 	$(PY) demo_categorical.py
 

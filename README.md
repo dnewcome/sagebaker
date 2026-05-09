@@ -1491,6 +1491,40 @@ auto-scaling, multi-AZ), see `deploy_endpoint.py` and the
 registry round-trip (`models:/sage-baker-sklearn/1`), see
 `mlflow_serve.py`. All three paths converge on the same `model_fn`.
 
+### HTTP scoring server (curl-able)
+
+For a real HTTP endpoint backed by an MLflow-registered model:
+
+```bash
+make mlflow-server                                                # terminal 1
+MLFLOW_TRACKING_URI=http://127.0.0.1:5000 make train-clickstream  # registers v<n>
+make mlflow-serve-http                                            # terminal 2 (default: latest)
+# or: make mlflow-serve-http NAME=sage-baker-sklearn VERSION=2 PORT=5001
+```
+
+Then curl with the `dataframe_records` payload format (NOT `inputs` —
+that's MLflow's tensor-input shape and trips sklearn's column
+validation here):
+
+```bash
+curl -X POST http://127.0.0.1:5001/invocations \
+  -H "Content-Type: application/json" \
+  -d '{"dataframe_records": [{"n_page_views": 3, "n_clicks": 1, ...}]}'
+# → {"predictions": [0]}
+```
+
+The `make mlflow-serve-http` target sets the two env vars
+`mlflow models serve` needs (`PYTHONPATH=src` so the bundle wrapper
+can import `bundle`/`plugins`; `PATH` with venv first so the
+spawned `uvicorn` finds the venv's mlflow). Without those, the
+subprocess crashes with a misleading `ModuleNotFoundError`.
+
+Caveat: returns class predictions by default. To get probabilities,
+either edit `BundleWrapper.predict` in `src/tracking.py` to honor
+`params.get("predict_method")`, or wrap the model differently at
+registration time. The serving infra is correct; it's just MLflow's
+PyFunc default behavior.
+
 ## Cleaning up
 
 `.sm-scratch/` accumulates artifacts and per-job dirs. Safe to delete between
