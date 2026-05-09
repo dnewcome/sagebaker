@@ -19,9 +19,11 @@ import os
 
 from .base import Scenario, SimulationResult
 from .scenarios.fuzzy_clickstream import FuzzyClickstreamScenario
+from .scenarios.product_catalog import ProductCatalogScenario
 
 _SCENARIOS: list[type[Scenario]] = [
     FuzzyClickstreamScenario,
+    ProductCatalogScenario,
 ]
 
 _REGISTRY: dict[str, type[Scenario]] = {cls.name: cls for cls in _SCENARIOS}

@@ -83,6 +83,9 @@ data-simulate: ## Run a simulated scenario: SCENARIO=<name> OUTPUT=<dir>
 data-fuzzy: ## Generate fuzzy_clickstream scenario into ./data_fuzzy/
 	$(PY) prepare_simulate.py --scenario fuzzy_clickstream --output ./data_fuzzy/
 
+data-products: ## Generate product_catalog scenario into ./data_products/
+	$(PY) prepare_simulate.py --scenario product_catalog --output ./data_products/
+
 data-linkage: ## Build pair-level dataset from ./data_fuzzy/ for record-linkage training
 	$(PY) prepare_linkage.py --input ./data_fuzzy --output ./data_linkage --n-pairs 20000
 
