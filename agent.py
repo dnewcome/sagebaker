@@ -283,11 +283,12 @@ The FIRST line must be a comment in exactly this format:
 
 
 def run_training(train_cmd, env, window=5):
-    """Run training, show a rolling window of the last N output lines.
+    """Run training, show a fixed rolling window of the last N output lines.
 
-    Uses ANSI cursor-up to overwrite the window in place so the terminal
-    doesn't scroll endlessly. All output is still captured for metric
-    parsing. Merges stderr into stdout so warnings appear in order.
+    Reserves `window` lines upfront then always moves back up and overwrites
+    them — so output never scrolls past N lines regardless of how fast it
+    arrives. Falls back to plain line-by-line output when stdout is not a TTY
+    (e.g. redirected to a file or pipe).
     """
     from collections import deque
     proc = subprocess.Popen(
@@ -295,18 +296,25 @@ def run_training(train_cmd, env, window=5):
         text=True, env=env,
     )
     lines = []
+    is_tty = sys.stdout.isatty()
+    if is_tty:
+        # Reserve the window area so the first redraw has lines to overwrite.
+        sys.stdout.write("\n" * window)
+        sys.stdout.flush()
     buf = deque(maxlen=window)
-    printed = 0  # lines currently on screen; needed to know how far to move up
     for raw in proc.stdout:
         line = raw.rstrip("\n")
         lines.append(line)
         buf.append(line)
-        if printed:
-            sys.stdout.write(f"\033[{printed}A")  # move cursor up
-        for dl in buf:
-            sys.stdout.write(f"\r\033[K  | {dl}\n")  # clear line, write, newline
-        printed = len(buf)
-        sys.stdout.flush()
+        if is_tty:
+            sys.stdout.write(f"\033[{window}A")  # jump to top of reserved area
+            for dl in buf:
+                sys.stdout.write(f"\r\033[K  | {dl[:120]}\n")
+            for _ in range(window - len(buf)):
+                sys.stdout.write("\r\033[K\n")   # blank out unused rows
+            sys.stdout.flush()
+        else:
+            print(f"  | {line}")
     proc.wait()
     return proc.returncode, "\n".join(lines)
 
