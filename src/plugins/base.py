@@ -91,6 +91,36 @@ class TrainingPlugin:
         """
         return {}
 
+    def load_bundle(self, model_dir: str):
+        """Load the trained model from a bundle directory.
+
+        Default: reads ``weights_file`` from config.json (falling back to
+        ``model.joblib``) and deserializes with joblib. Override if the
+        bundle layout differs — e.g. a custom pickle filename, a numpy
+        archive, or a multi-file bundle.
+        """
+        import json
+        import joblib
+        import os
+        weights_file = "model.joblib"
+        config_path = os.path.join(model_dir, "config.json")
+        if os.path.exists(config_path):
+            with open(config_path) as f:
+                weights_file = json.load(f).get("weights_file", weights_file)
+        return joblib.load(os.path.join(model_dir, weights_file))
+
+    def serve(self, model, raw_input: list, config: dict) -> dict:
+        """End-to-end inference for HTTP serving.
+
+        Default implementation chains ``prepare_inference()`` →
+        ``model.predict_proba()`` → ``postprocess()``. Override for models
+        that don't use sklearn's predict_proba interface (recommenders,
+        custom embedders, etc.).
+        """
+        X = self.prepare_inference(raw_input)
+        raw = model.predict_proba(X)
+        return self.postprocess(raw, config)
+
     def prepare_inference(self, raw_input: list) -> "pd.DataFrame":
         """Transform a raw HTTP request payload into model input features.
 

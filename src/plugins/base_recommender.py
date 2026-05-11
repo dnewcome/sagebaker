@@ -89,6 +89,27 @@ class RecommenderPlugin:
         """Extra fields to merge into config.json. Optional."""
         return {}
 
+    def load_bundle(self, model_dir: str):
+        """Load a recommender bundle from ``model_dir``.
+
+        Default: calls ``model_fn`` from ``train_recommender`` which returns
+        a ``RecommenderBundle`` (pure numpy, no training library required).
+        Override if the bundle layout differs.
+        """
+        import train_recommender
+        return train_recommender.model_fn(model_dir)
+
+    def serve(self, model, raw_input: list, config: dict) -> dict:
+        """End-to-end inference for HTTP serving.
+
+        Recommender plugins must override this — there is no generic
+        implementation because output format varies by use case
+        (ranked lists, scored pairs, etc.).
+        """
+        raise NotImplementedError(
+            f"Plugin '{self.name}' has no serve() implementation."
+        )
+
     def prepare_data(self, output_dir: str, seed: int = 42, extra_args: list = None) -> None:
         """Generate synthetic training data into ``output_dir``.
 
