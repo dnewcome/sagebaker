@@ -218,6 +218,40 @@ feast-apply: ## Register Feast entity/view + materialize features online
 	cd feature_store && ../$(VENV)/bin/feast apply
 	cd feature_store && ../$(VENV)/bin/feast materialize-incremental $$(date -u +%Y-%m-%dT%H:%M:%S)
 
+# ---------- docker base images -----------------------------------------
+
+docker-build-tabular: ## Build the tabular serving base image (sklearn DLC + lightgbm)
+	docker build -t sagebaker-tabular:latest docker/tabular/
+
+docker-build-embedding: ## Build the embedding serving base image (pytorch DLC + sentence-transformers + faiss)
+	docker build -t sagebaker-embedding:latest docker/embedding/
+
+# MODEL_DIR has a global default, so $(eval MODEL_DIR ?= …) won't apply
+# our per-plugin default. `origin` lets us honour command-line overrides
+# while computing models/$(PLUGIN) when nothing was passed explicitly.
+docker-train: ## Train a plugin inside the tabular image. PLUGIN=sonar DATA_DIR=data MODEL_DIR=models/sonar
+	@$(eval PLUGIN ?= sonar)
+	@$(eval IMAGE ?= sagebaker-tabular:latest)
+	@$(eval DATA_DIR := $(if $(filter command line,$(origin DATA_DIR)),$(DATA_DIR),$(CURDIR)/data))
+	@$(eval MODEL_DIR := $(if $(filter command line,$(origin MODEL_DIR)),$(MODEL_DIR),$(CURDIR)/models/$(PLUGIN)))
+	mkdir -p $(MODEL_DIR)
+	docker run --rm \
+	  -v $(DATA_DIR):/data \
+	  -v $(MODEL_DIR):/model \
+	  $(IMAGE) \
+	  python -m train --train /data --model-dir /model --plugin $(PLUGIN)
+
+docker-serve: ## Serve a local bundle via the tabular image. PLUGIN=sonar MODEL_DIR=models/sonar PORT=8080
+	@$(eval PLUGIN ?= sonar)
+	@$(eval IMAGE ?= sagebaker-tabular:latest)
+	@$(eval MODEL_DIR := $(if $(filter command line,$(origin MODEL_DIR)),$(MODEL_DIR),$(CURDIR)/models/$(PLUGIN)))
+	@$(eval PORT ?= 8080)
+	docker run --rm -p $(PORT):8080 \
+	  -v $(MODEL_DIR):/model \
+	  -e PLUGIN_NAME=$(PLUGIN) \
+	  -e MODEL_DIR=/model \
+	  $(IMAGE)
+
 # ---------- cleanup -----------------------------------------------------
 
 clean: ## Remove scratch dirs (keeps venv, MLflow data, Feast registry)
@@ -228,6 +262,7 @@ clean: ## Remove scratch dirs (keeps venv, MLflow data, Feast registry)
 .PHONY: train train-als train-housing train-torch train-lightgbm train-feast
 .PHONY: image train-byoc train-dlc train-feast-dlc
 .PHONY: serve serve-http mlflow-serve demo-categorical agent
+.PHONY: docker-build-tabular docker-build-embedding docker-train docker-serve
 .PHONY: mlflow-server jupyter feast-apply clean
 
 # Private plugin targets (gitignored; company-specific).

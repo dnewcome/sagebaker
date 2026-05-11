@@ -86,9 +86,16 @@ def predict():
 
 
 # Load at module level so gunicorn workers pick it up without needing
-# __main__.  The __main__ block is kept for `python serve.py` convenience.
+# __main__.  The console-script entry point and `python -m serve` paths
+# also reuse the already-loaded model via main().
 _load()
 
-if __name__ == "__main__":
+
+def main() -> None:
+    """Console-script entry point (sagebaker-serve)."""
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
+
+
+if __name__ == "__main__":
+    main()
