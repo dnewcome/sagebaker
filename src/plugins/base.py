@@ -26,6 +26,10 @@ class TrainingPlugin:
     # Either "classification" or "regression". Drives default metric
     # choice and downstream dispatch in evaluate.py / local_serve.py.
     task: str = "classification"
+    # pip requirements needed to load and serve this plugin. Override in
+    # subclasses that depend on packages beyond the base install.
+    # Install with: make install-plugin-deps PLUGIN=<name>
+    dependencies: list = []
 
     def prepare(self, df: pd.DataFrame) -> tuple:
         """Feature engineering + target extraction.

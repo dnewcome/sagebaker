@@ -62,6 +62,7 @@ class RecommenderPlugin:
     name: str = "base_recommender"
     entity_col: str = "entity_id"   # column name in the raw DataFrame
     item_col: str = "item_id"       # column name in the raw DataFrame
+    dependencies: list = []
 
     def prepare(self, df: pd.DataFrame) -> InteractionData:
         """Raw DataFrame → InteractionData (matrix + indices + train/test split).
