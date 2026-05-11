@@ -262,14 +262,24 @@ def propose(client, program, plugin_path, plugin_src, history, best,
    in stdout — change something the metric will actually respond to.{stuck_clause}
 
 Output a COMPLETE new version of the plugin file. Plain Python source.
-No markdown fences, no commentary, no diff format — just the file."""
+No markdown fences, no diff format — just the file.
+The FIRST line must be a comment in exactly this format:
+# RATIONALE: <one sentence explaining what you changed and why>
 
     msg = client.messages.create(
         model=ANTHROPIC_MODEL,
         max_tokens=4096,
         messages=[{"role": "user", "content": prompt}],
     )
-    return strip_fences(msg.content[0].text)
+    src = strip_fences(msg.content[0].text)
+    # Extract and strip the rationale line so it doesn't affect syntax or
+    # byte-identity checks — but preserve it for MLflow tagging.
+    rationale = ""
+    lines = src.splitlines()
+    if lines and lines[0].startswith("# RATIONALE:"):
+        rationale = lines[0][len("# RATIONALE:"):].strip()
+        src = "\n".join(lines[1:]).lstrip("\n")
+    return src, rationale
 
 
 def run_training(train_cmd, env, window=5):
@@ -435,14 +445,16 @@ def main():
             plugin_src = read(args.plugin)
 
             try:
-                proposal = propose(client, program, args.plugin, plugin_src,
-                                   history, best, iters_since_improvement,
-                                   diversify=args.diversify)
+                proposal, rationale = propose(client, program, args.plugin, plugin_src,
+                                              history, best, iters_since_improvement,
+                                              diversify=args.diversify)
             except Exception as e:
                 print(f"  LLM call failed: {e}")
                 history.append(("", -1.0, False, f"LLM call failed: {e}"))
                 iters_since_improvement += 1
                 continue
+            if rationale:
+                print(f"  rationale: {rationale}")
 
             if not syntax_ok(proposal):
                 why = "proposal failed Python syntax check (ast.parse raised)"
@@ -463,7 +475,10 @@ def main():
             print(f"  wrote new plugin (hash={src_hash(proposal)})")
             print(show_diff(plugin_src, proposal))
 
-            result_rc, result_out = run_training(train_cmd, os.environ.copy())
+            train_env = os.environ.copy()
+            if rationale:
+                train_env["AGENT_RATIONALE"] = rationale
+            result_rc, result_out = run_training(train_cmd, train_env)
             if result_rc != 0:
                 err_tail = result_out[-500:].strip()
                 why = f"training failed (exit {result_rc}). last stdout:\n{err_tail}"

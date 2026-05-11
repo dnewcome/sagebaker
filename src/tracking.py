@@ -33,7 +33,13 @@ def mlflow_run(run_name=None, params=None, tags=None):
         yield None
         return
     import mlflow
-    with mlflow.start_run(run_name=run_name, tags=tags) as run:
+    # Merge any AGENT_* env vars as tags so agent rationale etc. appear in UI.
+    agent_tags = {}
+    rationale = os.environ.get("AGENT_RATIONALE")
+    if rationale:
+        agent_tags["agent_rationale"] = rationale
+    merged_tags = {**(tags or {}), **agent_tags}
+    with mlflow.start_run(run_name=run_name, tags=merged_tags or None) as run:
         if params:
             mlflow.log_params(params)
         yield run
