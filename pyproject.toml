@@ -20,7 +20,7 @@ build-backend = "setuptools.build_meta"
 name = "sagebaker"
 version = "0.1.0"
 description = "ML pipeline sandbox: bundle architecture, MLflow/Feast/BigQuery integration, agent loop"
-requires-python = ">=3.10"
+requires-python = ">=3.9"
 
 [tool.setuptools]
 # src/ contents become top-level importable. py-modules lists the

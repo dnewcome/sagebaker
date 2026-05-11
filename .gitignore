@@ -61,3 +61,5 @@ secrets/
 
 # Talk drafts — private until shared
 talk/
+feature_repo/
+patches/

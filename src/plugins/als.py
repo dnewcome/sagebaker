@@ -25,6 +25,7 @@ als_iterations      training iterations      (default: 10)
 als_regularization  L2 regularisation        (default: 0.01)
 als_alpha           confidence scaling       (default: 20.0)
 """
+from __future__ import annotations
 import argparse
 import hashlib
 import json

@@ -22,6 +22,7 @@ import tracking
 # SageMaker's entry_point mechanism (which adds src/ to sys.path).
 sys.path.insert(0, os.path.dirname(__file__))
 from plugins import get_plugin, list_plugins  # noqa: E402
+from plugins.base import TrainingPlugin  # noqa: E402
 
 HP_PATH = "/opt/ml/input/config/hyperparameters.json"
 
@@ -155,6 +156,11 @@ def main():
         # trusted classes, no arbitrary code execution on load).
         save_weights(clf, os.path.join(args.model_dir, weights_file))
 
+        # optional pickle-free bundle export — plugins that implement
+        # export_bundle() write framework-native files here and override
+        # load_bundle() to load from them instead of the joblib weights.
+        plugin.export_bundle(clf, args.model_dir)
+
         # metadata: provenance + metrics. Augments, never gates loading.
         # If the prepare-* script wrote a lineage.json, embed it so the
         # bundle carries an audit trail back to the source data.
@@ -173,13 +179,37 @@ def main():
         tracking.log_bundle(args.model_dir)
 
         # also register a PyFunc wrapper so the model appears in the
-        # MLflow Models tab / Registry. The wrapper calls model_fn at
-        # load time — MLflow never pickles RandomForestClassifier itself.
-        tracking.register_bundle_as_pyfunc(
-            model_dir=args.model_dir,
-            model_fn=model_fn,
-            registered_name=os.environ.get("MLFLOW_REGISTERED_MODEL", "sagebaker-sklearn"),
+        # MLflow Models tab / Registry. Skip if the plugin owns its own
+        # bundle format (load_bundle overridden) — the pyfunc wrapper
+        # relies on the default joblib weights which may not exist.
+        _uses_custom_bundle = (
+            type(plugin).load_bundle is not TrainingPlugin.load_bundle
         )
+        if _uses_custom_bundle:
+            # Plugin owns its own bundle format — register the artifact
+            # path directly so the model appears in the MLflow registry
+            # without pickling anything.
+            _registered_name = os.environ.get("MLFLOW_REGISTERED_MODEL")
+            if _registered_name and tracking._enabled():
+                import mlflow
+                from mlflow.tracking import MlflowClient
+                _client = MlflowClient()
+                _run = mlflow.active_run()
+                try:
+                    _client.create_registered_model(_registered_name)
+                except Exception:
+                    pass  # already exists
+                _client.create_model_version(
+                    name=_registered_name,
+                    source=f"{_run.info.artifact_uri}/model",
+                    run_id=_run.info.run_id,
+                )
+        else:
+            tracking.register_bundle_as_pyfunc(
+                model_dir=args.model_dir,
+                model_fn=model_fn,
+                registered_name=os.environ.get("MLFLOW_REGISTERED_MODEL", "sagebaker-sklearn"),
+            )
 
 
 class _ThresholdedModel:

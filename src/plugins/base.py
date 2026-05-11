@@ -95,6 +95,19 @@ class TrainingPlugin:
         """
         return {}
 
+    def export_bundle(self, model, model_dir: str) -> None:
+        """Export framework-native, pickle-free bundle files. Optional.
+
+        Called by train.py after fit and save_weights. Write any
+        non-pickle artifacts here — e.g. LightGBM native text format,
+        FAISS index, ONNX. Plugins that implement this should also
+        override load_bundle() to load from these files instead of the
+        default joblib weights.
+
+        The default is a no-op — the harness falls back to joblib.
+        """
+        pass
+
     def load_bundle(self, model_dir: str):
         """Load the trained model from a bundle directory.
 
